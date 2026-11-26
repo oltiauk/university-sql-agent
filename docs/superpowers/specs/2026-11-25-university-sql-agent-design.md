@@ -162,7 +162,7 @@ Five nodes: `load_schema`, `generate_sql`, `execute_sql`, `check_result`, `answe
 
 ### Following up on a clarification **(call)**
 
-Each question is its own run with no memory, so the caller (the CLI now, the UI later) builds the follow-up question:
+The graph itself keeps nothing between runs, so the caller builds the follow-up question to a clarification (the web interface also passes in the last three turns of the current chat; see M5):
 
 - A chosen choice is sent as-is, because each choice is already a complete question.
 - Typed text is joined to the original question by one small helper, `original + " (" + reply + ")"`, and sent as a new question.
@@ -270,7 +270,7 @@ Acceptance criteria:
 Plan: `docs/superpowers/plans/2026-11-26-m5-web-interface.md`. Designs by the owner: `docs/design/sql-agent-ui.html` (chat and trace panel) and `docs/design/start-screen.html` (start screen).
 
 - `python -m agent.server [--db FILE] [--traces DIR] [--examples FILE] [--port N]`: a local server on Python's standard library, bound to 127.0.0.1, serving one page and JSON endpoints (state, Ollama models, setup, ask, runs).
-- Every answer shown is a saved trace record from a real run; the trace panel draws that record's steps: SQL, rows, errors, retries. The last 20 saved runs for the database are listed on load.
+- Every answer shown is a saved trace record from a real run; the trace panel draws that record's steps: SQL, rows, errors, retries. The runs of the current chat are listed on load (at most the last 20).
 - On the start screen, choose Claude, OpenAI or Ollama. For a hosted provider, the model picker starts with the active model, the configured model for that provider, or the first UI preset, in that order. It also accepts a custom model name. Ollama lists its installed models. If a key is needed, enter it in the masked field. The key is kept in the server's memory until the app stops and never written to disk, a trace, a log, a response or browser storage. The screen is skipped when the environment already has provider, model and key.
 - A clarification shows its choices as buttons with a free-text box beside them. A clicked choice is asked as-is; typed words are joined to the original question. Nothing runs until the person answers; clicks on buttons drawn less than 400 ms ago, and the second click of a double-click, are ignored.
 - The database viewer: click the database name to see its tables and views with row counts, and up to 1,000 rows of the picked one. Read-only, a 5-second limit, and it does not change what the model is given.
