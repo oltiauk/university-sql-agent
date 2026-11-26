@@ -41,3 +41,7 @@ def test_current_chat_is_in_the_page():
     for needed in ("/api/runs?chat=", "#chat=", "replaceState", "getRandomValues", "New chat", "Understood as:", "renderDb",
                    "body.chat = state.chat"):
         assert needed in PAGE
+
+
+def test_page_follows_a_changed_chat_address():
+    assert "hashchange" in PAGE and "location.reload()" in PAGE

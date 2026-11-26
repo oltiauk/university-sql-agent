@@ -141,6 +141,8 @@ function newChat() {
   state.chat = id;
   history.replaceState(null, '', '#chat=' + id);   // no navigation, no scroll
 }
+// the address was edited by hand, or Back/Forward moved between chats: start again from what it now says
+window.addEventListener('hashchange', function () { location.reload(); });
 var hashChat = /^#chat=([0-9a-f]{12})$/.exec(location.hash);
 if (hashChat) state.chat = hashChat[1]; else newChat();
 

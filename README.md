@@ -190,6 +190,7 @@ These are stated plainly because each one can give a wrong answer while every ch
 - The SQL check rejects any `;` inside the query, even inside a quoted string.
 - SQLite only.
 - In the web interface the last three turns of the current chat are given as context, and the model decides whether a question is a follow-up. It can get that wrong in either direction: read a complete question as a follow-up, or miss one. The trace shows what it understood. The command line has no memory.
+- Because earlier answers are given back to the model, text that came out of the database in one answer can steer the next query for up to three turns, for example by adding or dropping a filter. The effect is limited to a wrong answer: it is still one read-only query. The trace panel lists the earlier turns the model was given.
 - The web interface is for one person on one computer: there is no login, and the chosen model is shared by every page open on the server. An answer appears only when its run has finished. The page itself has no automated browser tests; the tests check the server and the text of the page.
 
 ## Layout

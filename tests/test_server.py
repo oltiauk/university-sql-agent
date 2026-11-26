@@ -159,8 +159,13 @@ def test_two_asks_two_traces(app):
 def test_runs_lists_only_this_database_and_at_most_twenty(app):
     for i in range(22):
         (app.traces).mkdir(exist_ok=True)
-        (app.traces / f"20260101-0000{i:02d}-aaaaaa.json").write_text(json.dumps({"run_id": f"r{i}", "database": app.db, "chat": A, "steps": []}))
-    (app.traces / "20260102-000000-bbbbbb.json").write_text(json.dumps({"run_id": "other", "database": "library.db", "chat": A, "steps": []}))
+        # file names run backwards on purpose: the order must come from started_at, not from the name
+        (app.traces / f"20260101-0000{21 - i:02d}-aaaaaa.json").write_text(json.dumps(
+            {"run_id": f"r{i}", "database": app.db, "chat": A, "started_at": f"2026-01-01T00:00:{i:02d}", "status": "answered",
+             "question": "q", "answer": "a", "steps": []}))
+    (app.traces / "20260102-000000-bbbbbb.json").write_text(json.dumps(
+        {"run_id": "other", "database": "library.db", "chat": A, "started_at": "2026-01-02T00:00:00", "status": "answered",
+         "question": "q", "answer": "a", "steps": []}))
     (app.traces / "20260103-000000-cccccc.json").write_text("[]")
     (app.traces / "20260103-000000-dddddd.json").write_text("null")
     runs = app.get(f"/api/runs?chat={A}")[1]["runs"]
@@ -378,3 +383,20 @@ def test_runs_are_listed_per_chat(app):
     a1 = app.post("/api/ask", {"question": "one?", "chat": A})[1]; app.post("/api/ask", {"question": "two?", "chat": B}); a2 = app.post("/api/ask", {"question": "three?", "chat": A})[1]
     assert [r["run_id"] for r in app.get(f"/api/runs?chat={A}")[1]["runs"]] == [a1["run_id"], a2["run_id"]]
     assert app.get("/api/runs")[1]["runs"] == [] and app.get("/api/runs?chat=nope")[1]["runs"] == []
+
+
+def test_damaged_records_with_a_real_chat_id_are_skipped(app):
+    app.queue(FakeModel([{"sql": "SELECT COUNT(*) AS n FROM students"}, "8", {"sql": "SELECT 1 AS one"}, "one"]))
+    app.post("/api/setup", {"provider": "ollama", "model": "m"})
+    good = app.post("/api/ask", {"question": "first?", "chat": "a" * 12})[1]
+    app.traces.mkdir(exist_ok=True)
+    damaged = [{"database": app.db, "chat": "a" * 12},                                              # no status, no steps
+               {"database": app.db, "chat": "a" * 12, "started_at": 5, "status": "answered", "question": "q", "answer": "a", "steps": []},
+               {"database": app.db, "chat": "a" * 12, "started_at": "2026", "status": "answered", "question": "q", "answer": "a",
+                "steps": [{"node": "generate_sql", "output": None}]}]
+    for n, record in enumerate(damaged):
+        (app.traces / f"20260101-00000{n}-dddddd.json").write_text(json.dumps(record))
+    status, rec = app.post("/api/ask", {"question": "second?", "chat": "a" * 12})
+    assert status == 200 and [h["question"] for h in rec["history"]] == ["first?"]
+    status, out = app.get("/api/runs?chat=" + "a" * 12)
+    assert status == 200 and [r["run_id"] for r in out["runs"]] == [good["run_id"], rec["run_id"]]

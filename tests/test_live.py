@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 
 from agent.graph import build_graph, combine
-from agent.server import history_from
+from agent.server import chat_runs, history_from
 from agent.trace import format_trace, run_traced
 from tests.known_answer import check_answer, check_labelled, check_rows
 from tests.test_known_answer import EXPECTED, GA, N
@@ -23,16 +23,21 @@ def run(question, db_path, tmp_path):
                       model=os.environ["LLM_MODEL"], traces_dir=str(tmp_path / "traces"))
 
 
-def chat(turns, db_path, tmp_path):
-    """play the turns one after another as one chat; a turn is a question or an (original, reply) pair"""
+A_CHAT, B_CHAT = "a" * 12, "b" * 12
+
+
+def chat(turns, db_path, tmp_path, chat_id=A_CHAT):
+    """play the turns one after another in one chat; a turn is a question or an (original, reply) pair.
+    The context of each turn comes from the saved traces through the same lookup the app uses."""
+    traces = str(tmp_path / "traces")
     records = []
     for turn in turns:
         question = combine(*turn) if isinstance(turn, tuple) else turn
         load_dotenv()
         model = init_chat_model(os.environ["LLM_MODEL"], model_provider=os.environ["LLM_PROVIDER"])
         records.append(run_traced(build_graph(model, db_path), question, database=db_path, provider=os.environ["LLM_PROVIDER"],
-                                  model=os.environ["LLM_MODEL"], traces_dir=str(tmp_path / "traces"),
-                                  history=history_from(records), chat="a" * 12))
+                                  model=os.environ["LLM_MODEL"], traces_dir=traces,
+                                  history=history_from(chat_runs(traces, db_path, chat_id)), chat=chat_id))
     return records
 
 
@@ -150,12 +155,18 @@ def test_follow_up_changes_one_detail(db_path, tmp_path):
 
 
 def test_a_complete_question_ignores_the_earlier_turns(db_path, tmp_path):
-    recs = chat(["How many students scored more than 70 in Databases in Fall 2025?", "How many teachers are there?"], db_path, tmp_path)
-    verify(recs[1], "answered", rows_problem(recs[1], [{"value": 3}], {"value": ("",)}), check_answer(recs[1]["answer"], [3]))
+    recs = chat(["How many students scored more than 70 in Databases in Fall 2025?", "How many courses are there?"], db_path, tmp_path)
+    assert len(recs[1]["history"]) == 1                      # it was given the earlier turn, and must not use it
+    verify(recs[1], "answered", rows_problem(recs[1], [{"value": 4}], {"value": ("",)}), check_answer(recs[1]["answer"], [4]))
 
 
 def test_a_new_chat_has_forgotten_the_cutoff(db_path, tmp_path):
-    chat(["How many students scored more than 70 in Databases in Fall 2025?"], db_path, tmp_path)
-    fresh = run("which ones?", db_path, tmp_path)          # no chat, no history: the old cutoff must be gone
+    chat(["How many students scored more than 70 in Databases in Fall 2025?"], db_path, tmp_path, A_CHAT)
+    traces = str(tmp_path / "traces")
+    assert len(history_from(chat_runs(traces, db_path, A_CHAT))) == 1       # the old chat's turn is saved and found by its id
+    fresh = chat(["which ones?"], db_path, tmp_path, B_CHAT)[0]             # same traces folder, another chat id
     sqls = " ".join(s["output"].get("sql", "") for s in fresh["steps"] if s["node"] == "generate_sql")
-    assert fresh["history"] == [] and "70" not in sqls and "70" not in fresh["understood"], format_trace(fresh)
+    assert fresh["chat"] == B_CHAT and fresh["history"] == [], format_trace(fresh)
+    assert "70" not in sqls and "70" not in fresh["understood"], format_trace(fresh)
+    again = chat(["which ones?"], db_path, tmp_path, A_CHAT)[0]             # the old chat still remembers
+    verify(again, "answered", rows_problem(again, EXPECTED, N))

@@ -83,16 +83,20 @@ def chat_runs(traces, db, chat):
             record = json.loads(f.read_text())
         except (OSError, ValueError):
             continue
-        if isinstance(record, dict) and record.get("database") == db and record.get("chat") == chat:
+        # a hand-made or damaged record is skipped, like a corrupt file
+        if (isinstance(record, dict) and record.get("database") == db and record.get("chat") == chat
+                and all(isinstance(record.get(k), str) for k in ("started_at", "status", "question"))
+                and isinstance(record.get("answer"), str) and isinstance(record.get("steps"), list)
+                and all(isinstance(s, dict) and isinstance(s.get("output"), dict) for s in record["steps"])):
             runs.append(record)
-    return sorted(runs, key=lambda r: r.get("started_at", ""))   # file names only sort to the second; ponytail: reads every trace file; index them if the folder gets large
+    return sorted(runs, key=lambda r: r["started_at"])   # file names only sort to the second; ponytail: reads every trace file; index them if the folder gets large
 
 
 def history_from(records) -> list[dict]:
     """the last three runs that did not stop with an error, as the model should see them"""
     out = []
     for r in [r for r in records if r["status"] != "error"][-3:]:
-        sqls = [s["output"]["sql"] for s in r["steps"] if s["node"] == "generate_sql" and s["output"].get("sql")]
+        sqls = [s["output"]["sql"] for s in r["steps"] if s.get("node") == "generate_sql" and s["output"].get("sql")]
         keep = r["status"] in ("answered", "empty", "no_value", "mismatch")
         out.append({"question": r.get("understood") or r["question"], "answer": r["answer"],
                     "sql": sqls[-1] if sqls and keep else None})
