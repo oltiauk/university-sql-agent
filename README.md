@@ -35,6 +35,21 @@ python -m agent.cli --trace <the run id it printed>
 
 Exit codes: 0 for a normal end, 1 when the run ended `failed`, `mismatch` or `error`, 2 for a usage or setup problem.
 
+## Web interface
+
+The same agent can be used from a page in the browser. Start the local server, then open the address it prints (`http://127.0.0.1:8000/` by default; `--port` changes it):
+
+```bash
+python -m agent.server --examples db/university_questions.txt
+python -m agent.server --db library.db --examples db/library_questions.txt
+```
+
+`--examples` names a text file with one question per line; each one becomes a button above the question box. `--db` and `--traces` work as in the command line. The server listens on 127.0.0.1 only.
+
+If `.env` names a provider, a model and (for OpenAI or Anthropic) a key, the page opens straight on the chat. Otherwise it opens on a setup screen that asks which AI should answer: Claude, OpenAI or Ollama. For Claude and OpenAI it asks for the model name and the API key; the key field is replaced by a note when the provider's key variable is already set in the environment. For Ollama it lists the models installed on this computer and needs no key. A typed key is sent once to the local server and kept in its memory until you stop it. It is not written to `.env`, a trace or the browser's storage. The model name under the question box opens the setup screen again.
+
+Every answer on the page is a saved run, and its trace panel shows that run's trace file. On opening, the page shows the last 20 runs for the database. A question back shows its choices as buttons: clicking one asks it as a new question, and typed words are added to the original in brackets, as in the command line.
+
 ## How it works
 
 The graph has five nodes (steps). Each node reads the shared state and adds to it. All five live in `agent/graph.py`; the database helpers they call are in `agent/db.py` and the two prompts are in `agent/prompts.py`. This path, plus subqueries inside the one SQL statement, is what "multi-step reasoning" means here; the agent runs one query per question.
@@ -141,6 +156,7 @@ RUN_LIVE=1 pytest tests/test_live.py
 | Safety of the query | Read-only at two layers: the SQL check accepts one statement starting with `SELECT` or `WITH`, and the connection is opened read-only. A 5-second limit per query | A write hidden behind `WITH` passes the check and is stopped by the connection. The limit stops a query that would never finish. |
 | Model provider | Any of three, chosen in `.env`, created through LangChain's `init_chat_model` | The graph takes a model object and never sees a provider name or key, so switching provider changes no agent code. |
 | Tracing | Own JSON files (`agent/trace.py`), not LangSmith, LangChain's hosted tracing service | Works offline with no account, which matters when demonstrating it. Only our code writes the trace, so the no-key rule stays under our control. It records LangGraph's update stream, so it follows the path the graph actually took. |
+| Web server | Python's built-in `http.server` and one HTML file with plain JavaScript, no web framework and no build step | One person on one computer needs no more. It adds no package, and the page is a single file that can be read in full. |
 
 ## Known limits
 
@@ -155,7 +171,7 @@ These are stated plainly because each one can give a wrong answer while every ch
 - One query per question: a question that needs the result of one query to write the next is answered only if it fits in a single statement with subqueries.
 - The SQL check rejects any `;` inside the query, even inside a quoted string.
 - SQLite only, and no memory between questions.
-- A web interface (choosing a provider, a clickable list of traces) is planned but not built.
+- The web interface is for one person on one computer: there is no login, and the chosen model is shared by every page open on the server. An answer appears only when its run has finished. The page itself has no automated browser tests; the tests check the server and the text of the page.
 
 ## Layout
 
@@ -165,13 +181,17 @@ agent/
   db.py             open read-only, read the schema, check the SQL, run it with row cap and time limit
   graph.py          the state, the five nodes and their edges
   prompts.py        the two system prompts
+  server.py         local web server: the page, setup, questions, saved runs
   trace.py          record, save, load and print a run
+  ui.html           the page: setup screen, chat and trace panel
 db/
   schema.sql        university schema
   seed.sql          university seed data
   library_schema.sql  library schema: books, members, loans
   library_seed.sql  library seed data
   build.py          builds a SQLite file from a schema and a seed file
+  university_questions.txt  example questions for the web interface
+  library_questions.txt     example questions for the library database
 tests/
   conftest.py       fresh databases for the tests
   fakes.py          the scripted fake model
@@ -184,6 +204,7 @@ examples/
   traces/           the saved traces
 docs/
   production.md     what production would need
+  design/           the two static page designs the web interface follows
   superpowers/      design spec and milestone plans
   grills/           decision record from the design session
 .env.example        model settings to copy into .env

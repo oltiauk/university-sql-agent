@@ -24,3 +24,20 @@ def test_every_dynamic_insertion_is_escaped():
     assert "innerHTML" in PAGE and "function esc(" in PAGE
     for raw in ("+ r.answer +", "+ r.question +", "+ s.sql +", "+ s.error +", "+ choice +", "+ rec.answer +", "+ rec.question +"):
         assert raw not in PAGE
+
+
+def test_setup_screen_is_in_the_page():
+    for needed in ("/api/setup", "/api/ollama", 'type="password"', "Which AI should answer?", "Found in your environment",
+                   "Ollama is not running on this computer", "Never saved", "Looking for Ollama"):
+        assert needed in PAGE
+
+
+def test_start_screen_keeps_its_design():
+    design = (ROOT / "docs" / "design" / "start-screen.html").read_text()
+    for token in (".switch", ".models", ".start", "max-width:380px", "width:64px;height:64px", "border-radius:16px", "#E3ECFA"):
+        assert token in design and token in PAGE
+
+
+def test_key_is_not_stored_by_the_page():
+    for forbidden in ("localStorage", "sessionStorage", "document.cookie", "?key=", "&key="):
+        assert forbidden not in PAGE

@@ -69,6 +69,29 @@ td{padding:6px 12px;border-top:1px solid #E4EAF3}
 summary{cursor:pointer}
 details pre{margin-top:8px}
 @media (min-width:1000px){.trace{position:sticky;top:28px;max-height:calc(100vh - 56px);overflow-y:auto}}
+button.tag{border:0;line-height:inherit}
+/* start screen, from docs/design/start-screen.html; body gets .start-view while it shows, so no chat rule changes */
+.start-view{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px 16px}
+.start-view .page{width:100%}
+.start-view input:focus-visible{outline:2px solid #2F6BFF;outline-offset:2px}
+.start-view .card{width:100%;max-width:380px;display:flex;flex-direction:column;gap:20px;padding:32px 28px 28px;background:#FFFFFF;border-radius:28px;box-shadow:0 24px 60px rgba(40,80,150,.07)}
+.start-view .top{display:flex;flex-direction:column;align-items:center;gap:18px}
+.start-view .orb{width:64px;height:64px;border-radius:999px;background:radial-gradient(circle at 62% 38%,#FFC83A 0%,#FF8A2A 34%,#FF5A4E 62%,#FFD9D2 100%);box-shadow:0 10px 30px rgba(255,120,60,.3)}
+.start-view h1{font-size:17px;font-weight:600;letter-spacing:-.01em;text-align:center}
+.start-view .switch{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:4px;background:#EEF3FB;border-radius:999px}
+.start-view .switch button{height:34px;padding:0 8px;font-size:13px;font-weight:500;color:#1B2333;background:transparent;border:0;border-radius:999px}
+.start-view .switch button[aria-pressed="true"]{background:#FFFFFF;box-shadow:0 2px 8px rgba(40,80,150,.14)}
+.start-view .field{display:flex;flex-direction:column;gap:8px}
+.start-view .label{font-size:13px;font-weight:500}
+.start-view .field input{height:42px;padding:0 16px;font-size:14px;color:#1B2333;background:#F4F7FB;border:0;border-radius:16px}
+.start-view .note{font-size:12px;color:#5B6676}
+.start-view .models{display:flex;flex-direction:column;gap:6px}
+.start-view .models button{display:flex;align-items:center;justify-content:space-between;height:38px;padding:0 16px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#1B2333;background:#F4F7FB;border:0;border-radius:14px}
+.start-view .models button svg{visibility:hidden}
+.start-view .models button[aria-pressed="true"]{background:#E3ECFA}
+.start-view .models button[aria-pressed="true"] svg{visibility:visible}
+.start-view .start{display:flex;align-items:center;justify-content:center;width:100%;height:42px;font-size:14px;font-weight:500;color:#FFFFFF;background:#1B2333;border:0;border-radius:999px;text-decoration:none}
+.start-view .back{align-self:center;padding:0;font-size:13px;color:#5B6676;background:none;border:0}
 </style>
 </head>
 <body>
@@ -88,8 +111,11 @@ var CHIPS = {
 var LABELS = { load_schema: 'Read the tables', generate_sql: 'Write the SQL', execute_sql: 'Run the SQL',
   check_result: 'Check the result', answer: 'Write the answer' };
 
+var NAMES = { anthropic: 'Claude', openai: 'OpenAI', ollama: 'Ollama' };
+
 // info: /api/state; turns: [{ record, bubble, error, from }]; sel: index of the turn whose trace is open
-var state = { info: null, turns: [], sel: null, busy: false };
+// setup: the start screen while it shows, else null: { p: provider id, ollama: null while asking, pick, busy }
+var state = { info: null, turns: [], sel: null, busy: false, setup: null, draft: '' };
 
 function esc(v) {
   return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -235,19 +261,111 @@ function chatHtml() {
   h += '<form class="composer" data-form="ask">' +
     '<label class="sr" for="q">Your question</label>' +
     '<input id="q" type="text" placeholder="Ask a question" autocomplete="off"' + dis() + '>' +
-    '<div class="bar"><div class="row"><span class="tag">' + esc(info.database) + '</span><span class="tag">' + esc(info.provider + ' · ' + info.model) + '</span></div>' +
+    '<div class="bar"><div class="row"><span class="tag">' + esc(info.database) + '</span>' +
+    '<button type="button" class="tag" data-act="setup" aria-label="Change the model"' + dis() + '>' + esc((own(NAMES, info.provider) || info.provider) + ' · ' + info.model) + '</button></div>' +
     '<button type="submit" class="round" aria-label="Ask" style="width:36px;height:36px"' + dis() + '>' + iconUp(15) + '</button></div></form></div></main>';
   return h;
+}
+
+var ICON_TICK = '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5"></path></svg>';
+
+function setupHtml() {
+  var s = state.setup, info = state.info;
+  var prov = arr(info.providers).filter(function (x) { return x && x.id === s.p; })[0] || {};
+  var h = '<main class="card"><div class="top"><span class="orb" aria-hidden="true"></span><h1>Which AI should answer?</h1></div>';
+  h += '<div class="switch">';
+  Object.keys(NAMES).forEach(function (id) {
+    h += '<button type="button" data-act="provider" data-p="' + id + '" aria-pressed="' + (id === s.p) + '">' + NAMES[id] + '</button>';
+  });
+  h += '</div>';
+  if (s.p === 'ollama') {
+    var o = s.ollama;
+    h += '<div class="field"><span class="label">Model</span>';
+    if (!o) h += '<p class="note">Looking for Ollama…</p>';
+    else if (!o.running) h += '<p class="note">Ollama is not running on this computer. Start it and choose Ollama again.</p>';
+    else if (!o.models.length) h += '<p class="note">Ollama has no models yet. Pull one, then choose Ollama again.</p>';
+    else {
+      h += '<div class="models">';
+      o.models.forEach(function (m, n) {
+        h += '<button type="button" data-act="model" data-m="' + n + '" aria-pressed="' + (n === s.pick) + '"><span>' + esc(m) + '</span>' + ICON_TICK + '</button>';
+      });
+      h += '</div><p class="note">Runs on this computer. No key needed.</p>';
+    }
+    h += '</div>';
+  } else {
+    var model = s.p === info.default_provider && info.default_model ? info.default_model : '';
+    h += '<div class="field"><label class="label" for="setup-model">Model</label>' +
+      '<input id="setup-model" type="text" placeholder="Model name" autocomplete="off" value="' + esc(model) + '"></div>';
+    h += prov.key_in_environment
+      ? '<div class="field"><span class="label">API key</span><p class="note">Found in your environment. Nothing to type.</p></div>'
+      : '<div class="field"><label class="label" for="setup-key">API key</label><input id="setup-key" type="password" autocomplete="off">' +
+        '<p class="note">Kept in memory until you stop the app. Never saved.</p></div>';
+  }
+  h += '<button type="button" class="start" data-act="start">Start</button>';
+  h += '<p class="err" id="setup-err" role="alert" hidden></p>';
+  if (info.ready) h += '<button type="button" class="back" data-act="back">Back</button>';
+  return h + '</main>';
+}
+
+// Start needs a model, and a key where the provider needs one and the environment has none
+function updateStart() {
+  var s = state.setup, ok;
+  if (s.p === 'ollama') ok = !!(s.ollama && s.ollama.running && s.ollama.models.length);
+  else {
+    var k = document.getElementById('setup-key');
+    ok = !!document.getElementById('setup-model').value.trim() && (!k || !!k.value.trim());
+  }
+  app.querySelector('.start').disabled = s.busy || !ok;
+}
+
+function openSetup(p) {
+  var s = state.setup = { p: p, ollama: null, pick: 0, busy: false };
+  render();
+  if (p !== 'ollama') return;
+  var done = function (o) {
+    if (state.setup !== s) return;   // another provider was pressed meanwhile
+    s.ollama = { running: !!(o && o.running), models: arr(o && o.models) };
+    render();
+  };
+  getJson('/api/ollama').then(done, function () { done(null); });
+}
+
+function defaultProvider() {
+  return own(NAMES, state.info.default_provider) ? state.info.default_provider : 'anthropic';
+}
+
+// the key is read from its input here, sent once in the body, and the input is cleared on success
+function start() {
+  var s = state.setup, k = document.getElementById('setup-key'), err = document.getElementById('setup-err');
+  var model = s.p === 'ollama' ? s.ollama.models[s.pick] : document.getElementById('setup-model').value.trim();
+  var fail = function (msg) { s.busy = false; err.textContent = msg; err.hidden = false; updateStart(); };
+  s.busy = true;
+  err.hidden = true;
+  updateStart();
+  fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: s.p, model: model, key: k ? k.value : undefined }) })
+    .then(function (res) {
+      return res.json().then(function (data) {
+        if (!(res.ok && data && data.ok)) return fail((data && data.error) || 'The app gave no answer');
+        if (k) k.value = '';
+        state.setup = null;
+        load();
+      });
+    })
+    .catch(function () { fail('The app gave no answer'); });
 }
 
 var app = document.getElementById('app');
 
 function render(scrollTo) {
-  if (!state.info.ready) {
-    app.innerHTML = '<main class="card chat"><p>Choose a model first</p></main>';
+  document.body.classList.toggle('start-view', !!state.setup);
+  if (state.setup) {
+    app.innerHTML = setupHtml();
+    updateStart();
     return;
   }
-  var q = document.getElementById('q'), typed = q ? q.value : '';
+  var q = document.getElementById('q'), typed = q ? q.value : state.draft;
+  state.draft = '';
   var cur = state.turns[state.sel];
   app.innerHTML = chatHtml() + (cur && cur.record ? traceHtml(cur.record) : '');
   document.getElementById('q').value = typed;
@@ -268,7 +386,7 @@ function load() {
   }).then(function (data) {
     state.turns = arr(data.runs).map(function (r) { return { record: r, bubble: r.question }; });
     state.sel = state.turns.length ? state.turns.length - 1 : null;
-    render(state.sel);
+    if (state.info.ready) render(state.sel); else openSetup(defaultProvider());
   }).catch(function () {
     app.innerHTML = '<main class="card chat"><p>Could not reach the app</p></main>';
   });
@@ -299,8 +417,25 @@ function ask(body, bubble, from) {
 app.addEventListener('click', function (ev) {
   var b = ev.target.closest('[data-act]');
   if (!b || b.disabled) return;
-  var act = b.getAttribute('data-act'), i = Number(b.getAttribute('data-i'));
-  if (act === 'toggle') {
+  var act = b.getAttribute('data-act'), i = Number(b.getAttribute('data-i')), s = state.setup;
+  if (s) {
+    if (s.busy) return;
+    if (act === 'provider') {
+      var p = b.getAttribute('data-p');
+      if (p !== s.p || p === 'ollama') openSetup(p);   // pressing Ollama again asks again
+    } else if (act === 'model') {
+      s.pick = Number(b.getAttribute('data-m'));
+      render();
+    } else if (act === 'start') {
+      start();
+    } else if (act === 'back') {
+      state.setup = null;
+      render();
+    }
+  } else if (act === 'setup') {
+    state.draft = document.getElementById('q').value;
+    openSetup(defaultProvider());
+  } else if (act === 'toggle') {
     state.sel = state.sel === i ? null : i;
     render();
   } else if (act === 'close') {
@@ -314,6 +449,8 @@ app.addEventListener('click', function (ev) {
     ask({ question: x }, x);
   }
 });
+
+app.addEventListener('input', function () { if (state.setup) updateStart(); });
 
 app.addEventListener('submit', function (ev) {
   ev.preventDefault();
