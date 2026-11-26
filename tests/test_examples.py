@@ -6,7 +6,7 @@ import pytest
 import examples.make_examples
 from db.build import ROOT
 from agent.cli import main
-from examples.make_examples import make
+from examples.make_examples import KEPT, make
 from tests.fakes import FakeModel
 
 
@@ -78,3 +78,15 @@ def test_error_run_keeps_the_previous_example(tmp_path):
     assert index(tmp_path)["aggregate"] == before
     assert (tmp_path / "traces" / f"{before['run_id']}.json").exists()
     assert len(list((tmp_path / "traces").glob("*.json"))) == 11
+
+
+def test_kept_wrong_answer_is_listed_and_never_replaced(tmp_path):
+    kept = ROOT / "examples" / "traces" / f"{KEPT}.json"
+    (tmp_path / "traces").mkdir()
+    (tmp_path / "traces" / kept.name).write_text(kept.read_text())
+    make(live=False, out_dir=str(tmp_path))
+    make(live=False, out_dir=str(tmp_path))
+    text = (tmp_path / "README.md").read_text()
+    assert (tmp_path / "traces" / kept.name).read_text() == kept.read_text()      # untouched by regeneration
+    assert f"traces/{KEPT}.json" in text and "A wrong answer that looked right" in text and "95.0" in text
+    assert "/Users/" not in kept.read_text() and json.loads(kept.read_text())["database"] == "university.db"

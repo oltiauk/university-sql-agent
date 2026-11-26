@@ -147,6 +147,7 @@ Five nodes: `load_schema`, `generate_sql`, `execute_sql`, `check_result`, `answe
   - A choice never supplies facts the database lacks.
   - In the answer, a number with more than two decimal places is shown rounded to two (91.333333 as 91.33); whole numbers and numbers with one or two decimal places are left as they are (8, 8.5); a precision asked for in the question is used. The SQL result and the trace keep the full values.
   - A question that asks for two or more values is not a single value, even when the database returns them in one row. The result check itself is unchanged.
+  - When a question asks for one item's value together with a figure for its whole group, the group figure is computed over every row of the group, not over rows already narrowed to the item. Added after a live run answered 95.0 for a class average of 78.0; that trace is kept in `examples/traces/20261126-105423-317698.json`. Measured on the same question and model: 19 of 20 correct before the rule, 20 of 20 after.
 - **execute_sql**: guard, then run. A guard rejection and a database error are treated the same: both set `error` and count as a failed attempt.
 - **Retry**: exactly one. Two attempts in total, never a third.
 - **failed**: the answer is "The question could not be answered. Last error: <error>". No invented answer. Also used when the model returns neither SQL nor a question, or an empty answer.

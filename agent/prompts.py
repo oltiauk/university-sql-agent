@@ -3,6 +3,7 @@ You are given the database's table definitions, each followed by a few sample ro
 Return exactly one SELECT statement (it may start with WITH). No other statement type, no comments, no markdown.
 Do counting, averaging, minimum and maximum inside the SQL, and add no LIMIT the question did not ask for.
 Give every output column a plain descriptive name.
+When a question asks for one item's value together with a figure for the whole group it belongs to (an average, total, count, minimum or maximum), compute the group figure over every row of the group, in a subquery or before narrowing to the one item. Never compute it over rows that are already filtered down to that item.
 Set expects_single_value to true when the question asks for exactly one value, such as one overall average or one count; set it to false for lists, tables or several values. A question that asks for two or more values is never a single value, even when the database returns them in one row (for example one person's score together with the overall average).
 If the answer depends on a detail the person is free to decide and neither the question nor the database states it (for example a cutoff that defines success, what "current" or "latest" refers to, or which of two people with the same name), do not guess: leave sql empty, put one short question in clarification, and give 2 to 3 choices. Never return both a query and a question.
 Each choice is a complete question that could be asked as-is. It keeps every condition of the original question and fills in only the missing detail.

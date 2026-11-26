@@ -24,6 +24,20 @@ CLASS_GRADES = """SELECT e.grade AS grade FROM enrollments e JOIN offerings o ON
 JOIN courses c ON c.id = o.course_id WHERE c.title = 'Databases' AND o.semester = '2025-Fall'"""
 AVG = "What is the average grade in Databases in Fall 2025?"
 COUNT = "How many students are there?"
+KEPT = "20261126-105423-317698"    # a real run that gave a wrong answer; kept as recorded, never re-run
+KEPT_NOTE = """## A wrong answer that looked right
+
+Kept as recorded from a real run. It is not regenerated.
+
+The query narrows the rows to one student first and then averages over what is left, so the "class average" is
+that student's own grade: 95.0 instead of 78.0. The SQL is valid, the result has the expected shape, and the run
+ends as `answered`. Nothing at run time objects. The known-answer test caught it, because it expects 78.0 in the
+average column, and the trace shows where it went wrong: the `generate_sql` step.
+
+It happened about once in 20 runs of this question. A rule was then added to the SQL prompt (a figure for a whole
+group is computed over every row of the group, not over rows already narrowed to one item). In 20 runs before the
+rule 19 were correct; in 20 runs after it all 20 were. That is a lower rate on a small sample, not a guarantee.
+"""
 
 EXAMPLES = [
     dict(id="scripted-retry", title="A query that fails and is corrected", db="university.db", question=COUNT,
@@ -82,7 +96,7 @@ def real_model():
         os.environ["LLM_PROVIDER"], os.environ["LLM_MODEL"]
 
 
-def readme(index):
+def readme(index, traces):
     parts = [INTRO]
     for ex in EXAMPLES:
         e = index.get(ex["id"])
@@ -96,6 +110,12 @@ def readme(index):
         if e["sql"]:
             parts.append(f"SQL that ran:\n\n```sql\n{e['sql']}\n```\n")
         parts.append(f"Run id: `{e['run_id']}`, trace: [traces/{e['run_id']}.json](traces/{e['run_id']}.json)\n")
+    kept = traces / f"{KEPT}.json"
+    if kept.exists():
+        r = json.loads(kept.read_text())
+        sql = next(s["output"]["sql"] for s in r["steps"] if s["node"] == "generate_sql")
+        parts.append(KEPT_NOTE + f"\nQuestion: {r['question']}\n\nStatus: {r['status']}\n\nAnswer: {r['answer']}\n\n"
+                     f"SQL that ran:\n\n```sql\n{sql}\n```\n\nRun id: `{KEPT}`, trace: [traces/{KEPT}.json](traces/{KEPT}.json)\n")
     return "\n".join(parts)
 
 
@@ -134,7 +154,7 @@ def make(live: bool, model=None, out_dir="examples") -> list[dict]:
     finally:
         os.chdir(cwd)
         out.mkdir(parents=True, exist_ok=True)
-        (out / "README.md").write_text(readme(index))
+        (out / "README.md").write_text(readme(index, traces))
     return entries
 
 

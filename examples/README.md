@@ -258,3 +258,30 @@ WHERE loans.returned_on IS NULL
 ```
 
 Run id: `20261126-104408-849912`, trace: [traces/20261126-104408-849912.json](traces/20261126-104408-849912.json)
+
+## A wrong answer that looked right
+
+Kept as recorded from a real run. It is not regenerated.
+
+The query narrows the rows to one student first and then averages over what is left, so the "class average" is
+that student's own grade: 95.0 instead of 78.0. The SQL is valid, the result has the expected shape, and the run
+ends as `answered`. Nothing at run time objects. The known-answer test caught it, because it expects 78.0 in the
+average column, and the trace shows where it went wrong: the `generate_sql` step.
+
+It happened about once in 20 runs of this question. A rule was then added to the SQL prompt (a figure for a whole
+group is computed over every row of the group, not over rows already narrowed to one item). In 20 runs before the
+rule 19 were correct; in 20 runs after it all 20 were. That is a lower rate on a small sample, not a guarantee.
+
+Question: What is Arta's grade in Databases in Fall 2025, and what is the class average? Answer with two labels: grade and class average.
+
+Status: answered
+
+Answer: grade: 95.0; class average: 95.0
+
+SQL that ran:
+
+```sql
+SELECT e.grade AS grade, AVG(e.grade) OVER () AS "class average" FROM students s JOIN enrollments e ON e.student_id = s.id JOIN offerings o ON o.id = e.offering_id JOIN courses c ON c.id = o.course_id WHERE s.name = 'Arta' AND c.title = 'Databases' AND o.semester = '2025-Fall'
+```
+
+Run id: `20261126-105423-317698`, trace: [traces/20261126-105423-317698.json](traces/20261126-105423-317698.json)
