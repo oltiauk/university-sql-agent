@@ -7,7 +7,8 @@ import pytest
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 
-from agent.graph import build_graph
+from agent.graph import build_graph, combine
+from agent.server import history_from
 from agent.trace import format_trace, run_traced
 from tests.known_answer import check_answer, check_labelled, check_rows
 from tests.test_known_answer import EXPECTED, GA, N
@@ -20,6 +21,19 @@ def run(question, db_path, tmp_path):
     model = init_chat_model(os.environ["LLM_MODEL"], model_provider=os.environ["LLM_PROVIDER"])
     return run_traced(build_graph(model, db_path), question, database=db_path, provider=os.environ["LLM_PROVIDER"],
                       model=os.environ["LLM_MODEL"], traces_dir=str(tmp_path / "traces"))
+
+
+def chat(turns, db_path, tmp_path):
+    """play the turns one after another as one chat; a turn is a question or an (original, reply) pair"""
+    records = []
+    for turn in turns:
+        question = combine(*turn) if isinstance(turn, tuple) else turn
+        load_dotenv()
+        model = init_chat_model(os.environ["LLM_MODEL"], model_provider=os.environ["LLM_PROVIDER"])
+        records.append(run_traced(build_graph(model, db_path), question, database=db_path, provider=os.environ["LLM_PROVIDER"],
+                                  model=os.environ["LLM_MODEL"], traces_dir=str(tmp_path / "traces"),
+                                  history=history_from(records), chat="a" * 12))
+    return records
 
 
 def rows_problem(rec, expected, names):
@@ -117,3 +131,31 @@ def test_precision_asked_for_is_used(db_path, tmp_path):
 def test_short_numbers_are_left_alone(db_path, tmp_path):
     rec = run("What is the average grade in the Algorithms class in Fall 2025?", db_path, tmp_path)   # 93.5
     verify(rec, "answered", None if "93.5" in rec["answer"] and "93.50" not in rec["answer"] else f"93.5 was changed: {rec['answer']}")
+
+
+def test_the_owners_flow(db_path, tmp_path):
+    recs = chat(["How many students passed Databases in Fall 2025?",
+                 ("How many students passed Databases in Fall 2025?", "more than 70"),
+                 "which ones?"], db_path, tmp_path)
+    assert recs[0]["status"] == "clarification", format_trace(recs[0])
+    verify(recs[1], "answered", rows_problem(recs[1], [{"value": 3}], {"value": ("",)}), check_answer(recs[1]["answer"], [3]))
+    last = recs[2]
+    verify(last, "answered", rows_problem(last, EXPECTED, N), check_answer(last["answer"], ["Arta", "Blerim", "Dren"], ["Era", "Fatos"]),
+           None if all(w in last["understood"].lower() for w in ("70", "databases", "2025")) else f"understood: {last['understood']}")
+
+
+def test_follow_up_changes_one_detail(db_path, tmp_path):
+    recs = chat(["What is the average grade in Databases in Fall 2025?", "And in Spring 2026?"], db_path, tmp_path)
+    verify(recs[1], "answered", rows_problem(recs[1], [{"value": 91.3}], {"value": ("",)}), check_answer(recs[1]["answer"], [91.33]))
+
+
+def test_a_complete_question_ignores_the_earlier_turns(db_path, tmp_path):
+    recs = chat(["How many students scored more than 70 in Databases in Fall 2025?", "How many teachers are there?"], db_path, tmp_path)
+    verify(recs[1], "answered", rows_problem(recs[1], [{"value": 3}], {"value": ("",)}), check_answer(recs[1]["answer"], [3]))
+
+
+def test_a_new_chat_has_forgotten_the_cutoff(db_path, tmp_path):
+    chat(["How many students scored more than 70 in Databases in Fall 2025?"], db_path, tmp_path)
+    fresh = run("which ones?", db_path, tmp_path)          # no chat, no history: the old cutoff must be gone
+    sqls = " ".join(s["output"].get("sql", "") for s in fresh["steps"] if s["node"] == "generate_sql")
+    assert fresh["history"] == [] and "70" not in sqls and "70" not in fresh["understood"], format_trace(fresh)

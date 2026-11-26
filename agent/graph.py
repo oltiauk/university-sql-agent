@@ -24,6 +24,8 @@ class State(TypedDict, total=False):
     clarification: str
     choices: list[str]
     checked: bool
+    history: list[dict]
+    understood: str
 
 
 FAILED = "The question could not be answered. Last error: "
@@ -34,6 +36,7 @@ class SqlReply(BaseModel):
     expects_single_value: bool = Field(description="True when the question asks for exactly one value, such as one overall average or one count; false for lists, tables or several values.")
     clarification: str = Field(description="One short question when the answer depends on something neither the question nor the database states; otherwise an empty string.")
     choices: list[str] = Field(description="2 to 3 complete questions, each keeping every condition of the original and filling in only the missing detail; empty when no clarification is asked.")
+    understood_question: str = Field(description="The person's question restated as one complete question that stands on its own; when the question is already complete, repeat it as asked.")
 
 
 def combine(original: str, reply: str) -> str:
@@ -47,16 +50,22 @@ def build_graph(model, db_path: str):
             return {"schema": get_schema(conn)}
 
     def generate_sql(state: State):
-        text = "Schema:\n" + state["schema"] + "\n\nQuestion: " + state["question"]
+        text = "Schema:\n" + state["schema"]
+        if state.get("history"):
+            text += "\n\nEarlier in this conversation, oldest first:"
+            for n, h in enumerate(state["history"], 1):
+                text += f"\n{n}. Asked: {h['question']}\n" + (f"   SQL: {h['sql']}\n" if h["sql"] else "") + f"   Answered: {h['answer']}"
+        text += "\n\nQuestion: " + state["question"]
         if state.get("error"):
             text += ("\n\nThe previous query failed and must be corrected.\nPrevious SQL:\n"
                      + state["sql"] + "\nError: " + state["error"])
         reply = model.with_structured_output(SqlReply).invoke([("system", GENERATE_SQL_SYSTEM), ("user", text)])
+        understood = reply.understood_question.strip() or state["question"]
         if reply.clarification.strip():   # a question back wins; any SQL in the reply is dropped
-            return {"clarification": reply.clarification, "choices": reply.choices,
+            return {"understood": understood, "clarification": reply.clarification, "choices": reply.choices,
                     "status": "clarification", "answer": reply.clarification}
         if reply.sql.strip():
-            return {"sql": reply.sql, "expects_single_value": reply.expects_single_value,
+            return {"understood": understood, "sql": reply.sql, "expects_single_value": reply.expects_single_value,
                     "attempts": state.get("attempts", 0) + 1}
         msg = "the model returned neither SQL nor a question"
         return {"error": msg, "status": "failed", "answer": FAILED + msg}
@@ -86,7 +95,7 @@ def build_graph(model, db_path: str):
         return {"checked": True}   # an empty update reaches the trace as None, which breaks it
 
     def answer(state: State):
-        text = ("Question: " + state["question"] + "\n\nSQL:\n" + state["sql"]
+        text = ("Question: " + (state.get("understood") or state["question"]) + "\n\nSQL:\n" + state["sql"]
                 + "\n\nColumns: " + ", ".join(state["columns"])
                 + "\nRows:\n" + "\n".join(
                     "(" + ", ".join(repr(v)[:200] for v in r) + ")" for r in state["rows"]))

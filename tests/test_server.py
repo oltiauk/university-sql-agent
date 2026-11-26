@@ -86,7 +86,7 @@ def test_setup_then_ask(app):
     assert (rec["provider"], rec["model"], rec["database"]) == ("openai", "m-1", app.db)
     assert [s["node"] for s in rec["steps"]] == ["load_schema", "generate_sql", "execute_sql", "check_result", "answer"]
     assert (app.traces / f"{rec['run_id']}.json").exists()
-    assert app.get("/api/runs")[1]["runs"][-1]["run_id"] == rec["run_id"]
+    assert app.get("/api/runs")[1]["runs"] == []        # runs are listed per chat only
 
 def test_key_typed_in_the_page_never_comes_back(app, caplog, capsys):
     app.queue(FakeModel([RuntimeError(f"401 bad key {KEY}")]))
@@ -159,11 +159,11 @@ def test_two_asks_two_traces(app):
 def test_runs_lists_only_this_database_and_at_most_twenty(app):
     for i in range(22):
         (app.traces).mkdir(exist_ok=True)
-        (app.traces / f"20260101-0000{i:02d}-aaaaaa.json").write_text(json.dumps({"run_id": f"r{i}", "database": app.db, "steps": []}))
-    (app.traces / "20260102-000000-bbbbbb.json").write_text(json.dumps({"run_id": "other", "database": "library.db", "steps": []}))
+        (app.traces / f"20260101-0000{i:02d}-aaaaaa.json").write_text(json.dumps({"run_id": f"r{i}", "database": app.db, "chat": A, "steps": []}))
+    (app.traces / "20260102-000000-bbbbbb.json").write_text(json.dumps({"run_id": "other", "database": "library.db", "chat": A, "steps": []}))
     (app.traces / "20260103-000000-cccccc.json").write_text("[]")
     (app.traces / "20260103-000000-dddddd.json").write_text("null")
-    runs = app.get("/api/runs")[1]["runs"]
+    runs = app.get(f"/api/runs?chat={A}")[1]["runs"]
     assert [r["run_id"] for r in runs] == [f"r{i}" for i in range(2, 22)]
 
 def test_question_length_limit(app):
@@ -319,3 +319,62 @@ def test_infinity_and_huge_values_are_made_safe(odd_app):
     status, out = odd_app("/api/table?name=big")
     inf, text, blob = out["rows"][0]
     assert status == 200 and inf == "inf" and len(text) == 2001 and len(blob) < 300
+
+
+A, B = "a" * 12, "b" * 12
+COUNT = {"sql": "SELECT COUNT(*) AS n FROM students", "expects_single_value": True}
+
+def test_follow_up_is_given_the_earlier_turns_of_its_chat(app):
+    model = FakeModel([{**COUNT, "understood_question": "How many are there?"}, "There are 8.", {"sql": "SELECT name FROM students"}, "names"])
+    app.queue(model); app.post("/api/setup", {"provider": "ollama", "model": "m"})
+    first = app.post("/api/ask", {"question": "How many are there?", "chat": A})[1]
+    second = app.post("/api/ask", {"question": "which ones?", "chat": A})[1]
+    sent = model.calls[2][1][1]
+    assert "Earlier in this conversation" in sent and "How many are there?" in sent and "SELECT COUNT(*) AS n FROM students" in sent and "There are 8." in sent
+    assert (first["chat"], first["history"]) == (A, []) and second["chat"] == A
+    assert second["history"] == [{"question": "How many are there?", "answer": "There are 8.", "sql": "SELECT COUNT(*) AS n FROM students"}]
+
+def test_another_chat_and_no_chat_start_empty(app):
+    model = FakeModel([COUNT, "8", COUNT, "8", COUNT, "8"])
+    app.queue(model); app.post("/api/setup", {"provider": "ollama", "model": "m"})
+    app.post("/api/ask", {"question": "How many are there?", "chat": A})
+    other = app.post("/api/ask", {"question": "which ones?", "chat": B})[1]
+    none = app.post("/api/ask", {"question": "which ones?"})[1]
+    assert other["history"] == [] and none["history"] == [] and none["chat"] is None
+    assert "Earlier in this conversation" not in model.calls[2][1][1] and "Earlier in this conversation" not in model.calls[4][1][1]
+
+def test_only_the_last_three_turns_are_given(app):
+    model = FakeModel([COUNT, "8"] * 5)
+    app.queue(model); app.post("/api/setup", {"provider": "ollama", "model": "m"})
+    for n in range(1, 6):
+        rec = app.post("/api/ask", {"question": f"question number {n}?", "chat": A})[1]
+    assert [h["question"] for h in rec["history"]] == ["question number 2?", "question number 3?", "question number 4?"]
+
+def test_a_typed_clarification_is_part_of_the_context(app):
+    clarify = {"clarification": "What cutoff?", "choices": ["A?", "B?"], "understood_question": "How many passed?"}
+    model = FakeModel([clarify, {**COUNT, "understood_question": "How many passed, counting more than 70?"}, "3.", {"sql": "SELECT name FROM students"}, "names"])
+    app.queue(model); app.post("/api/setup", {"provider": "ollama", "model": "m"})
+    app.post("/api/ask", {"question": "How many passed?", "chat": A})
+    app.post("/api/ask", {"original": "How many passed?", "reply": "more than 70", "chat": A})
+    third = app.post("/api/ask", {"question": "which ones?", "chat": A})[1]
+    assert [h["question"] for h in third["history"]] == ["How many passed?", "How many passed, counting more than 70?"]
+    assert third["history"][0] == {"question": "How many passed?", "answer": "What cutoff?", "sql": None}
+    assert "more than 70" in model.calls[3][1][1]
+
+def test_runs_that_stopped_are_not_context(app):
+    model = FakeModel([RuntimeError("down"), COUNT, "8"])
+    app.queue(model); app.post("/api/setup", {"provider": "ollama", "model": "m"})
+    app.post("/api/ask", {"question": "first?", "chat": A})
+    assert app.post("/api/ask", {"question": "second?", "chat": A})[1]["history"] == []
+
+@pytest.mark.parametrize("chat", ["", "short", "A" * 12, "g" * 12, "a" * 13, 123, ["a" * 12]])
+def test_bad_chat_ids_are_refused(app, chat):
+    app.queue(FakeModel([])); app.post("/api/setup", {"provider": "ollama", "model": "m"})
+    assert app.post("/api/ask", {"question": "q", "chat": chat}) == (400, {"error": "Bad chat id"})
+
+def test_runs_are_listed_per_chat(app):
+    model = FakeModel([COUNT, "8"] * 3)
+    app.queue(model); app.post("/api/setup", {"provider": "ollama", "model": "m"})
+    a1 = app.post("/api/ask", {"question": "one?", "chat": A})[1]; app.post("/api/ask", {"question": "two?", "chat": B}); a2 = app.post("/api/ask", {"question": "three?", "chat": A})[1]
+    assert [r["run_id"] for r in app.get(f"/api/runs?chat={A}")[1]["runs"]] == [a1["run_id"], a2["run_id"]]
+    assert app.get("/api/runs")[1]["runs"] == [] and app.get("/api/runs?chat=nope")[1]["runs"] == []

@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-def run_traced(graph, question: str, *, database: str, provider: str, model: str, traces_dir: str = "traces") -> dict:
+def run_traced(graph, question: str, *, database: str, provider: str, model: str, traces_dir: str = "traces", history=(), chat=None) -> dict:
     now = datetime.now(timezone.utc)
     record = {"run_id": now.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6], "started_at": now.isoformat(),
               "question": question, "database": database, "provider": provider, "model": model,
-              "status": None, "answer": None, "steps": []}
+              "status": None, "answer": None, "chat": chat, "history": list(history), "understood": question, "steps": []}
     node, last = None, time.monotonic()
 
     def add(name, output):
@@ -20,7 +20,7 @@ def run_traced(graph, question: str, *, database: str, provider: str, model: str
         last = t
 
     try:
-        for mode, chunk in graph.stream({"question": question}, stream_mode=["updates", "tasks"]):
+        for mode, chunk in graph.stream({"question": question, "history": list(history)}, stream_mode=["updates", "tasks"]):
             if mode == "tasks" and "result" not in chunk:
                 node = chunk["name"]
             elif mode == "updates":
@@ -28,6 +28,7 @@ def run_traced(graph, question: str, *, database: str, provider: str, model: str
                     add(name, update)
                     record["status"] = update.get("status", record["status"])
                     record["answer"] = update.get("answer", record["answer"])
+                    record["understood"] = update.get("understood", record["understood"])
     except (Exception, KeyboardInterrupt) as e:
         # only the class name is kept: provider error text can carry request details
         add(node, {"error": type(e).__name__})
@@ -39,7 +40,7 @@ def run_traced(graph, question: str, *, database: str, provider: str, model: str
     return record
 
 
-def load_trace(run_id: str, traces_dir: str = "traces") -> dict:
+def load_trace(run_id: str, traces_dir: str = "traces", history=(), chat=None) -> dict:
     with open(Path(traces_dir) / f"{run_id}.json") as f:
         return json.load(f)
 
@@ -48,6 +49,10 @@ def format_trace(record: dict) -> str:
     lines = [f"Run {record['run_id']}", f"Started:  {record['started_at']}", f"Database: {record['database']}",
              f"Model:    {record['provider']} / {record['model']}", f"Status:   {record['status']}",
              f"Question: {record['question']}"]
+    if record.get("understood", record["question"]) != record["question"]:   # older traces lack these fields
+        lines.append(f"Understood: {record['understood']}")
+    if record.get("history"):
+        lines.append(f"Earlier turns given: {len(record['history'])}")
     for step in record["steps"]:
         lines += ["", f"[{step['node']}] {step['duration_ms']} ms"]
         for key, value in step["output"].items():

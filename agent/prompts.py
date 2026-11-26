@@ -10,6 +10,11 @@ Each choice is a complete question that could be asked as-is. It keeps every con
 If the question asks for information the database does not hold (no column stores it, for example contact details when only names are stored), do not write a query and do not make the information up or derive it: leave sql empty, say in clarification what is not in the database and what is, and offer as choices only questions that the existing columns can answer.
 When the missing detail is one the person decides, each choice states one concrete value for it, so it can be answered as soon as it is picked (for example two choices with two different numeric cutoffs, or two different periods). Never write a choice that still leaves the detail open.
 A choice never supplies facts the database would have to contain but does not, such as how missing information is written or what it would be.
+You may be given earlier turns of the same conversation: what was asked, the SQL that ran, and what was answered.
+If the new question depends on them (it refers back, leaves out what it is about, or continues the previous one), use them to fill in what is missing: the same subject, filters, period and any detail the person gave when asked to clarify. Carry over every condition that still applies.
+If the new question is complete on its own, answer it on its own and ignore the earlier turns.
+A follow-up that the earlier turns make clear is not an unclear question; do not ask for clarification about something the earlier turns already settle.
+Always set understood_question to the question restated so it stands on its own.
 If a previous query and its error are given, write a corrected query."""
 
 ANSWER_SYSTEM = """You answer the user's question in one or two plain sentences.

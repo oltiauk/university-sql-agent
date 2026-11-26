@@ -5,7 +5,7 @@ from contextlib import closing
 from agent.graph import build_graph
 from agent.trace import format_trace, load_trace, run_traced
 from tests.fakes import FakeModel
-from tests.test_graph import ABOVE_AVG, QUESTION
+from tests.test_graph import ABOVE_AVG, HIST, QUESTION
 
 
 def traced(model, db_path, tmp_path, question=QUESTION):
@@ -14,14 +14,14 @@ def traced(model, db_path, tmp_path, question=QUESTION):
 
 def test_trace_records_the_full_path(db_path, tmp_path):
     rec = traced(FakeModel([{"sql": ABOVE_AVG}, "Arta, Blerim and Dren."]), db_path, tmp_path)
-    assert set(rec) == {"run_id", "started_at", "question", "database", "provider", "model", "status", "answer", "steps"}
+    assert set(rec) == {"run_id", "started_at", "question", "database", "provider", "model", "status", "answer", "chat", "history", "understood", "steps"}
     assert (rec["question"], rec["database"], rec["provider"], rec["model"]) == (QUESTION, db_path, "fake", "fake-1")
     assert (rec["status"], rec["answer"]) == ("answered", "Arta, Blerim and Dren.")
     assert [s["node"] for s in rec["steps"]] == ["load_schema", "generate_sql", "execute_sql", "check_result", "answer"]
     for step in rec["steps"]:
         assert set(step) == {"node", "at", "duration_ms", "output"} and step["duration_ms"] >= 0
     assert "CREATE TABLE" in rec["steps"][0]["output"]["schema"]
-    assert rec["steps"][1]["output"] == {"sql": ABOVE_AVG, "expects_single_value": False, "attempts": 1}
+    assert rec["steps"][1]["output"] == {"understood": QUESTION, "sql": ABOVE_AVG, "expects_single_value": False, "attempts": 1}
     assert rec["steps"][2]["output"]["columns"] == ["name"]
     assert rec["steps"][4]["output"]["answer"] == "Arta, Blerim and Dren."
 
@@ -101,3 +101,18 @@ def test_mismatch_trace_shows_why(db_path, tmp_path):
     assert rec["steps"][3]["output"]["status"] == "mismatch"
     text = format_trace(rec)
     assert "expects_single_value: True" in text and "returned 8 rows" in text
+
+
+def test_history_chat_and_understood_are_recorded(db_path, tmp_path):
+    model = FakeModel([{"sql": "SELECT 1 AS one", "understood_question": "Which ones scored above 70 in X?"}, "ok"])
+    rec = run_traced(build_graph(model, db_path), "which ones?", database=db_path, provider="fake", model="fake-1",
+                     traces_dir=str(tmp_path / "traces"), history=HIST, chat="abcdef012345")
+    assert (rec["chat"], rec["history"], rec["understood"]) == ("abcdef012345", HIST, "Which ones scored above 70 in X?")
+    text = format_trace(rec)
+    assert "Understood: Which ones scored above 70 in X?" in text and "Earlier turns given: 2" in text
+
+def test_plain_run_shows_neither_line(db_path, tmp_path):
+    rec = traced(FakeModel([{"sql": "SELECT 1 AS one"}, "ok"]), db_path, tmp_path, "q")
+    assert (rec["chat"], rec["history"], rec["understood"]) == (None, [], "q")
+    text = format_trace(rec)
+    assert "Understood:" not in text and "Earlier turns" not in text

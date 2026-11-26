@@ -201,3 +201,27 @@ def test_truncated_single_value_message(tmp_path):
     final = build_graph(model, str(path)).invoke({"question": "one n"})
     assert final["status"] == "mismatch"
     assert final["answer"] == "The question asks for a single value, but the query returned more than 100 rows."
+
+
+HIST = [{"question": "How many scored above 70 in X?", "answer": "3.", "sql": "SELECT COUNT(*) AS n FROM t WHERE v > 70"},
+        {"question": "Which unit is biggest?", "answer": "Unit A.", "sql": None}]
+
+def test_history_reaches_the_sql_prompt_in_order(db_path):
+    model = FakeModel([{"sql": "SELECT 1 AS one", "understood_question": "Which ones scored above 70 in X?"}, "ok"])
+    final = build_graph(model, db_path).invoke({"question": "which ones?", "history": HIST})
+    sent = text_of(model.calls[0])
+    assert "Earlier in this conversation, oldest first:" in sent
+    assert sent.index("How many scored above 70 in X?") < sent.index("SELECT COUNT(*) AS n FROM t WHERE v > 70") < sent.index("3.") < sent.index("Which unit is biggest?") < sent.index("Question: which ones?")
+    assert final["understood"] == "Which ones scored above 70 in X?"
+    assert "Question: Which ones scored above 70 in X?" in text_of(model.calls[1])      # the answer step gets the full question
+
+def test_no_history_no_block(db_path):
+    for hist in ({}, {"history": []}):
+        model = FakeModel([{"sql": "SELECT 1 AS one"}, "ok"])
+        final = build_graph(model, db_path).invoke({"question": "How many?", **hist})
+        assert "Earlier in this conversation" not in text_of(model.calls[0])
+        assert final["understood"] == "How many?"                                          # falls back to the question
+
+def test_clarification_keeps_the_understood_question(db_path):
+    model = FakeModel([{"clarification": "Which cutoff?", "choices": ["A?", "B?"], "understood_question": "How many passed X?"}])
+    assert build_graph(model, db_path).invoke({"question": "how many passed"})["understood"] == "How many passed X?"

@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sqlite3
 import math
 import threading
@@ -69,6 +70,33 @@ def cell(v):
 
 def quoted(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
+
+
+CHAT_ID = re.compile(r"[0-9a-f]{12}")
+
+
+def chat_runs(traces, db, chat):
+    """the saved runs of one chat on this database, oldest first"""
+    runs = []
+    for f in sorted(Path(traces).glob("*.json")):
+        try:
+            record = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, dict) and record.get("database") == db and record.get("chat") == chat:
+            runs.append(record)
+    return sorted(runs, key=lambda r: r.get("started_at", ""))   # file names only sort to the second; ponytail: reads every trace file; index them if the folder gets large
+
+
+def history_from(records) -> list[dict]:
+    """the last three runs that did not stop with an error, as the model should see them"""
+    out = []
+    for r in [r for r in records if r["status"] != "error"][-3:]:
+        sqls = [s["output"]["sql"] for s in r["steps"] if s["node"] == "generate_sql" and s["output"].get("sql")]
+        keep = r["status"] in ("answered", "empty", "no_value", "mismatch")
+        out.append({"question": r.get("understood") or r["question"], "answer": r["answer"],
+                    "sql": sqls[-1] if sqls and keep else None})
+    return out
 
 
 def key_in_environment(provider) -> bool:
@@ -157,15 +185,8 @@ def make_server(db: str, traces: str = "traces", examples: list[str] = (), port:
                 except Exception:
                     return 200, {"running": False, "models": []}
             if (method, path) == ("GET", "/api/runs"):
-                runs = []
-                for f in sorted(Path(traces).glob("*.json")):
-                    try:
-                        record = json.loads(f.read_text())
-                    except (OSError, ValueError):
-                        continue
-                    if isinstance(record, dict) and record.get("database") == db:
-                        runs.append(record)
-                return 200, {"runs": runs[-20:]}   # ponytail: reads every trace file; index them if the folder gets large
+                chat = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("chat", [""])[0]
+                return 200, {"runs": chat_runs(traces, db, chat)[-20:] if CHAT_ID.fullmatch(chat) else []}
             if (method, path) == ("GET", "/api/tables"):
                 tables = []
                 with closing(limited(connect(db))) as conn:
@@ -230,8 +251,13 @@ def make_server(db: str, traces: str = "traces", examples: list[str] = (), port:
                 return 400, {"error": "Enter a question"}
             if len(question) > MAX_QUESTION:
                 return 400, {"error": "The question is too long"}
+            chat = body.get("chat")
+            if chat is not None and not (isinstance(chat, str) and CHAT_ID.fullmatch(chat)):
+                return 400, {"error": "Bad chat id"}
+            history = history_from(chat_runs(traces, db, chat)) if chat else []
             graph = build_graph(model, db)   # one graph per ask, so two asks can run together
-            return 200, run_traced(graph, question, database=db, provider=provider, model=name, traces_dir=traces)
+            return 200, run_traced(graph, question, database=db, provider=provider, model=name, traces_dir=traces,
+                                    history=history, chat=chat)
 
     # ponytail: binds 127.0.0.1 only, so no auth; add a token before it is ever exposed beyond this computer
     return ThreadingHTTPServer(("127.0.0.1", port), Handler)   # its threads are daemon threads already
