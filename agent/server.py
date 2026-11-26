@@ -16,6 +16,7 @@ from agent.trace import run_traced
 PROVIDERS = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "ollama": None}
 UI = Path(__file__).with_name("ui.html")
 MAX_BODY = 1_000_000
+MAX_QUESTION = 2000
 log = logging.getLogger("agent.server")
 
 
@@ -52,14 +53,19 @@ def make_server(db: str, traces: str = "traces", examples: list[str] = (), port:
             log.warning("Could not create the model from the environment: %s", type(e).__name__)
 
     class Handler(BaseHTTPRequestHandler):
+        timeout = 10   # a body shorter than its Content-Length would otherwise hold the thread forever
+
         def log_message(self, format, *args):
             log.info("%s %s", self.address_string(), format % args)   # request line only, never a body
 
-        def send(self, status, body, content_type="application/json"):
-            data = body if isinstance(body, bytes) else json.dumps(body, default=repr).encode()
+        def send(self, status, body):
+            html = isinstance(body, bytes)
+            data = body if html else json.dumps(body, default=repr).encode()
             self.send_response(status)
-            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Type", "text/html; charset=utf-8" if html else "application/json")
             self.send_header("Content-Length", str(len(data)))
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
             self.end_headers()
             self.wfile.write(data)
 
@@ -81,11 +87,7 @@ def make_server(db: str, traces: str = "traces", examples: list[str] = (), port:
                             raise ValueError
                     except ValueError:
                         return self.send(400, {"error": "Invalid JSON body"})
-                status, out = self.route(method, self.path.split("?")[0], body)
-                if isinstance(out, bytes):
-                    self.send(status, out, "text/html; charset=utf-8")
-                else:
-                    self.send(status, out)
+                self.send(*self.route(method, self.path.split("?")[0], body))
             except Exception as e:
                 self.send(500, {"error": type(e).__name__})   # class name only, never the message
 
@@ -120,7 +122,7 @@ def make_server(db: str, traces: str = "traces", examples: list[str] = (), port:
                         record = json.loads(f.read_text())
                     except (OSError, ValueError):
                         continue
-                    if record.get("database") == db:
+                    if isinstance(record, dict) and record.get("database") == db:
                         runs.append(record)
                 return 200, {"runs": runs[-20:]}   # ponytail: reads every trace file; index them if the folder gets large
             if (method, path) == ("POST", "/api/setup"):
@@ -131,7 +133,7 @@ def make_server(db: str, traces: str = "traces", examples: list[str] = (), port:
 
         def _setup(self, body):
             provider, name, key = body.get("provider"), body.get("model"), body.get("key")
-            if provider not in PROVIDERS:
+            if not isinstance(provider, str) or provider not in PROVIDERS:
                 return 400, {"error": "Unknown provider"}
             if not isinstance(name, str) or not name.strip():
                 return 400, {"error": "Enter a model name"}
@@ -151,20 +153,19 @@ def make_server(db: str, traces: str = "traces", examples: list[str] = (), port:
                 return 409, {"error": "Choose a model first"}
             if "original" in body or "reply" in body:
                 original, reply = body.get("original"), body.get("reply")
-                if not (isinstance(original, str) and isinstance(reply, str) and original.strip() and reply.strip()):
-                    return 400, {"error": "Enter a question"}
-                question = combine(original, reply)
+                ok = isinstance(original, str) and isinstance(reply, str) and original.strip() and reply.strip()
+                question = combine(original, reply) if ok else None
             else:
                 question = body.get("question")
-                if not isinstance(question, str) or not question.strip():
-                    return 400, {"error": "Enter a question"}
+            if not isinstance(question, str) or not question.strip():
+                return 400, {"error": "Enter a question"}
+            if len(question) > MAX_QUESTION:
+                return 400, {"error": "The question is too long"}
             graph = build_graph(model, db)   # one graph per ask, so two asks can run together
             return 200, run_traced(graph, question, database=db, provider=provider, model=name, traces_dir=traces)
 
     # ponytail: binds 127.0.0.1 only, so no auth; add a token before it is ever exposed beyond this computer
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    server.daemon_threads = True
-    return server
+    return ThreadingHTTPServer(("127.0.0.1", port), Handler)   # its threads are daemon threads already
 
 
 def main(argv=None) -> int:

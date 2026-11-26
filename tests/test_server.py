@@ -40,7 +40,7 @@ def app(db_path, tmp_path, monkeypatch):
 
     server = make_server(db_path, traces=str(tmp_path / "traces"), examples=["Q one?", "Q two?"], create_model=factory)
     port = server.server_address[1]
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     thread.start()
 
     def get_raw(path, headers=None):
@@ -117,6 +117,8 @@ def test_setup_uses_the_environment_key_when_none_is_typed(app, monkeypatch):
     ({"provider": "nope", "model": "m"}, "provider"),
     ({"provider": "openai", "model": " "}, "model"),
     ({"provider": "openai", "model": "m"}, "key"),
+    ({"provider": ["openai"], "model": "m"}, "provider"),
+    ({"provider": {}, "model": "m"}, "provider"),
 ])
 def test_setup_refusals(app, body, reason):
     status, out = app.post("/api/setup", body)
@@ -156,8 +158,31 @@ def test_runs_lists_only_this_database_and_at_most_twenty(app):
         (app.traces).mkdir(exist_ok=True)
         (app.traces / f"20260101-0000{i:02d}-aaaaaa.json").write_text(json.dumps({"run_id": f"r{i}", "database": app.db, "steps": []}))
     (app.traces / "20260102-000000-bbbbbb.json").write_text(json.dumps({"run_id": "other", "database": "library.db", "steps": []}))
+    (app.traces / "20260103-000000-cccccc.json").write_text("[]")
+    (app.traces / "20260103-000000-dddddd.json").write_text("null")
     runs = app.get("/api/runs")[1]["runs"]
     assert [r["run_id"] for r in runs] == [f"r{i}" for i in range(2, 22)]
+
+def test_question_length_limit(app):
+    count = {"sql": "SELECT COUNT(*) AS n FROM students"}
+    app.queue(FakeModel([count, "8"]))
+    app.post("/api/setup", {"provider": "ollama", "model": "m"})
+    assert app.post("/api/ask", {"question": "x" * 2001}) == (400, {"error": "The question is too long"})
+    assert app.post("/api/ask", {"original": "x" * 1990, "reply": "y" * 10}) == (400, {"error": "The question is too long"})
+    assert not list(app.traces.glob("*.json"))
+    assert app.post("/api/ask", {"question": "x" * 2000})[0] == 200
+
+def test_responses_forbid_framing(app):
+    for path in ("/", "/api/state"):
+        conn = http.client.HTTPConnection("127.0.0.1", app.port, timeout=10)
+        try:
+            conn.request("GET", path)
+            resp = conn.getresponse()
+            resp.read()
+            assert resp.getheader("X-Frame-Options") == "DENY"
+            assert resp.getheader("Content-Security-Policy") == "frame-ancestors 'none'"
+        finally:
+            conn.close()
 
 def test_ollama_models(app, monkeypatch):
     monkeypatch.setattr("agent.server.fetch_ollama_tags", lambda: {"models": [{"name": "llama3.2"}, {"name": "mistral"}]})
@@ -179,7 +204,7 @@ def test_page_is_served_and_unknown_paths_are_404(app):
     assert app.get("/nope")[0] == 404
 
 def test_handler_helpers_are_not_http_methods(app):
-    for method in ("setup", "ask", "SETUP", "ask"):
+    for method in ("setup", "ask", "SETUP"):
         for path in ("/api/setup", "/api/ask"):
             try:
                 status, _ = _request(app.port, method, path, body=b'{"provider": "ollama", "model": "m", "question": "q"}',

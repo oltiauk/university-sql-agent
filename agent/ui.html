@@ -74,9 +74,9 @@ button.tag{border:0;line-height:inherit}
 .start-view{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px 16px}
 .start-view .page{width:100%}
 .start-view input:focus-visible{outline:2px solid #2F6BFF;outline-offset:2px}
-.start-view .card{width:100%;max-width:380px;display:flex;flex-direction:column;gap:20px;padding:32px 28px 28px;background:#FFFFFF;border-radius:28px;box-shadow:0 24px 60px rgba(40,80,150,.07)}
+.start-view .card{width:100%;max-width:380px;display:flex;flex-direction:column;gap:20px;padding:32px 28px 28px}
 .start-view .top{display:flex;flex-direction:column;align-items:center;gap:18px}
-.start-view .orb{width:64px;height:64px;border-radius:999px;background:radial-gradient(circle at 62% 38%,#FFC83A 0%,#FF8A2A 34%,#FF5A4E 62%,#FFD9D2 100%);box-shadow:0 10px 30px rgba(255,120,60,.3)}
+.start-view .orb{width:64px;height:64px;box-shadow:0 10px 30px rgba(255,120,60,.3)}
 .start-view h1{font-size:17px;font-weight:600;letter-spacing:-.01em;text-align:center}
 .start-view .switch{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:4px;background:#EEF3FB;border-radius:999px}
 .start-view .switch button{height:34px;padding:0 8px;font-size:13px;font-weight:500;color:#1B2333;background:transparent;border:0;border-radius:999px}
@@ -90,7 +90,7 @@ button.tag{border:0;line-height:inherit}
 .start-view .models button svg{visibility:hidden}
 .start-view .models button[aria-pressed="true"]{background:#E3ECFA}
 .start-view .models button[aria-pressed="true"] svg{visibility:visible}
-.start-view .start{display:flex;align-items:center;justify-content:center;width:100%;height:42px;font-size:14px;font-weight:500;color:#FFFFFF;background:#1B2333;border:0;border-radius:999px;text-decoration:none}
+.start-view .start{display:flex;align-items:center;justify-content:center;width:100%;height:42px;font-size:14px;font-weight:500;color:#FFFFFF;background:#1B2333;border:0;border-radius:999px}
 .start-view .back{align-self:center;padding:0;font-size:13px;color:#5B6676;background:none;border:0}
 </style>
 </head>
@@ -298,7 +298,7 @@ function setupHtml() {
       '<input id="setup-model" type="text" placeholder="Model name" autocomplete="off" value="' + esc(model) + '"></div>';
     h += prov.key_in_environment
       ? '<div class="field"><span class="label">API key</span><p class="note">Found in your environment. Nothing to type.</p></div>'
-      : '<div class="field"><label class="label" for="setup-key">API key</label><input id="setup-key" type="password" autocomplete="off">' +
+      : '<div class="field"><label class="label" for="setup-key">API key</label><input id="setup-key" type="password" autocomplete="new-password">' +
         '<p class="note">Kept in memory until you stop the app. Never saved.</p></div>';
   }
   h += '<button type="button" class="start" data-act="start">Start</button>';
@@ -327,14 +327,14 @@ function openSetup(p) {
     s.ollama = { running: !!(o && o.running), models: arr(o && o.models) };
     render();
   };
-  getJson('/api/ollama').then(done, function () { done(null); });
+  send('/api/ollama').then(function (r) { done(r.ok ? r.data : null); });
 }
 
 function defaultProvider() {
   return own(NAMES, state.info.default_provider) ? state.info.default_provider : 'anthropic';
 }
 
-// the key is read from its input here, sent once in the body, and the input is cleared on success
+// the key is read from its input here, sent once in the body, and the input is cleared on any answer
 function start() {
   var s = state.setup, k = document.getElementById('setup-key'), err = document.getElementById('setup-err');
   var model = s.p === 'ollama' ? s.ollama.models[s.pick] : document.getElementById('setup-model').value.trim();
@@ -342,22 +342,19 @@ function start() {
   s.busy = true;
   err.hidden = true;
   updateStart();
-  fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider: s.p, model: model, key: k ? k.value : undefined }) })
-    .then(function (res) {
-      return res.json().then(function (data) {
-        if (!(res.ok && data && data.ok)) return fail((data && data.error) || 'The app gave no answer');
-        if (k) k.value = '';
-        state.setup = null;
-        load();
-      });
-    })
-    .catch(function () { fail('The app gave no answer'); });
+  send('/api/setup', { provider: s.p, model: model, key: k ? k.value : undefined }).then(function (r) {
+    if (k) k.value = '';
+    if (!r.ok) return fail(r.data.error);
+    state.setup = null;
+    load();
+  });
 }
 
 var app = document.getElementById('app');
+var drawnAt = 0;   // when the page was last redrawn: a click soon after may have been meant for what was there before
 
 function render(scrollTo) {
+  drawnAt = performance.now();
   document.body.classList.toggle('start-view', !!state.setup);
   if (state.setup) {
     app.innerHTML = setupHtml();
@@ -375,16 +372,22 @@ function render(scrollTo) {
   }
 }
 
-function getJson(path) {
-  return fetch(path).then(function (res) { return res.json(); });
+// GET when body is undefined, else POST it as JSON; resolves to { ok, data }, data.error set when not ok
+function send(path, body) {
+  var init = body === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  return fetch(path, init)
+    .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+    .catch(function () { return { ok: false }; })
+    .then(function (r) { return r.ok ? r : { ok: false, data: { error: (r.data && r.data.error) || 'The app gave no answer' } }; });
 }
 
 function load() {
-  return getJson('/api/state').then(function (info) {
-    state.info = info;
-    return getJson('/api/runs');
-  }).then(function (data) {
-    state.turns = arr(data.runs).map(function (r) { return { record: r, bubble: r.question }; });
+  return send('/api/state').then(function (r) {
+    if (!r.ok) throw r;
+    state.info = r.data;
+    return send('/api/runs');
+  }).then(function (r) {
+    state.turns = arr(r.data.runs).map(function (r) { return { record: r, bubble: r.question }; });
     state.sel = state.turns.length ? state.turns.length - 1 : null;
     if (state.info.ready) render(state.sel); else openSetup(defaultProvider());
   }).catch(function () {
@@ -392,32 +395,30 @@ function load() {
   });
 }
 
-// body: {question} or {original, reply}; bubble: what the person typed or clicked; from: the clarification turn
-function ask(body, bubble, from) {
+// body: {question} or {original, reply}; bubble: what the person typed or clicked; from: the clarification turn;
+// typed: the composer's text, put back if the ask fails
+function ask(body, bubble, from, typed) {
   if (state.busy) return;
   var t = { record: null, bubble: bubble, error: null, from: from };
   state.turns.push(t);
   var i = state.turns.length - 1;
   state.busy = true;
   render(i);
-  fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    .then(function (res) {
-      return res.json().then(function (data) {
-        if (res.ok) { t.record = data; state.sel = i; } else { t.error = (data && data.error) || 'The app gave no answer'; }
-      });
-    })
-    .catch(function () { t.error = 'The app gave no answer'; })
-    .then(function () {
-      state.busy = false;
-      render(i);
-      document.getElementById('q').focus();
-    });
+  send('/api/ask', body).then(function (r) {
+    if (r.ok) { t.record = r.data; state.sel = i; } else { t.error = r.data.error; }
+    state.busy = false;
+    render(i);
+    var q = document.getElementById('q');
+    if (t.error && typed) q.value = typed;
+    q.focus();
+  });
 }
 
 app.addEventListener('click', function (ev) {
   var b = ev.target.closest('[data-act]');
   if (!b || b.disabled) return;
   var act = b.getAttribute('data-act'), i = Number(b.getAttribute('data-i')), s = state.setup;
+  var fresh = ev.detail > 1 || performance.now() - drawnAt < 400;   // a double-click, or drawn under the pointer
   if (s) {
     if (s.busy) return;
     if (act === 'provider') {
@@ -441,10 +442,10 @@ app.addEventListener('click', function (ev) {
   } else if (act === 'close') {
     state.sel = null;
     render();
-  } else if (act === 'pick') {
+  } else if (act === 'pick' && !fresh) {
     var choice = arr(lastOut(state.turns[i].record).choices)[Number(b.getAttribute('data-c'))];
     ask({ question: choice }, choice, i);
-  } else if (act === 'ask') {
+  } else if (act === 'ask' && !fresh) {
     var x = arr(state.info.examples)[Number(b.getAttribute('data-x'))];
     ask({ question: x }, x);
   }
@@ -455,13 +456,13 @@ app.addEventListener('input', function () { if (state.setup) updateStart(); });
 app.addEventListener('submit', function (ev) {
   ev.preventDefault();
   var form = ev.target, input = form.querySelector('input'), text = input.value.trim();
-  if (!text || state.busy) return;
+  if (!text || state.busy || performance.now() - drawnAt < 400) return;
   if (form.getAttribute('data-form') === 'own') {
     var i = Number(form.getAttribute('data-i'));
     ask({ original: state.turns[i].record.question, reply: text }, text, i);
   } else {
     input.value = '';
-    ask({ question: text }, text);
+    ask({ question: text }, text, undefined, text);
   }
 });
 
