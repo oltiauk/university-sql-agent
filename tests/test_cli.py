@@ -47,3 +47,22 @@ def test_missing_env(db_path, tmp_path, capsys, monkeypatch, missing):
 def test_no_arguments(capsys):
     code, _, err = run(capsys, [])
     assert code == 2 and "question" in err.lower()
+
+@pytest.mark.parametrize("bad", ["../outside", "/etc/hosts"])
+def test_trace_rejects_paths(tmp_path, capsys, bad):
+    code, _, err = run(capsys, ["--trace", bad, "--traces", str(tmp_path)])
+    assert code == 2 and "No trace found" in err and "Traceback" not in err
+
+def test_trace_corrupt_file(tmp_path, capsys):
+    (tmp_path / "20260101-000000-abcdef.json").write_text("{not json")
+    code, _, err = run(capsys, ["--trace", "20260101-000000-abcdef", "--traces", str(tmp_path)])
+    assert code == 2 and "Traceback" not in err
+
+def test_model_creation_error(db_path, tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr("agent.cli.load_dotenv", lambda *a, **k: None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai"); monkeypatch.setenv("LLM_MODEL", "some-model")
+    def boom(*a, **k):
+        raise ValueError("secret detail sk-XYZ")
+    monkeypatch.setattr("agent.cli.init_chat_model", boom)
+    code, _, err = run(capsys, ["q", "--db", db_path, "--traces", str(tmp_path)])
+    assert code == 2 and "ValueError" in err and "sk-XYZ" not in err and "Traceback" not in err

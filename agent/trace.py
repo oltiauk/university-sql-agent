@@ -28,7 +28,7 @@ def run_traced(graph, question: str, *, database: str, provider: str, model: str
                     add(name, update)
                     record["status"] = update.get("status", record["status"])
                     record["answer"] = update.get("answer", record["answer"])
-    except Exception as e:
+    except (Exception, KeyboardInterrupt) as e:
         # only the class name is kept: provider error text can carry request details
         add(node, {"error": type(e).__name__})
         record["status"] = "error"

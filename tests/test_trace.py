@@ -72,3 +72,9 @@ def test_format_trace_shows_every_stage(db_path, tmp_path):
                      "c.title = 'Databases'", "Blerim", "Arta, Blerim and Dren.", "answered"):
         assert expected in text
     assert text.index("generate_sql") < text.index("execute_sql") < text.index("Arta, Blerim and Dren.")
+
+def test_trace_saved_on_keyboard_interrupt(db_path, tmp_path):
+    rec = traced(FakeModel([KeyboardInterrupt()]), db_path, tmp_path)
+    assert rec["status"] == "error"
+    assert rec["answer"] == "Run stopped at generate_sql: KeyboardInterrupt."
+    assert (tmp_path / "traces" / f"{rec['run_id']}.json").exists()

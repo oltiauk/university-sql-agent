@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -20,8 +21,10 @@ def main(argv: list[str] | None = None, model=None) -> int:
 
     if args.trace:
         try:
+            if not re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{6}", args.trace):
+                raise FileNotFoundError
             print(format_trace(load_trace(args.trace, args.traces)))
-        except FileNotFoundError:
+        except (OSError, ValueError, KeyError):
             print(f"No trace found for run {args.trace}", file=sys.stderr)
             return 2
         return 0
@@ -39,7 +42,12 @@ def main(argv: list[str] | None = None, model=None) -> int:
                 print(f"Set {name} in the environment or in .env (see .env.example)", file=sys.stderr)
                 return 2
         provider, model_name = os.environ["LLM_PROVIDER"], os.environ["LLM_MODEL"]
-        model = init_chat_model(model_name, model_provider=provider)
+        try:
+            model = init_chat_model(model_name, model_provider=provider)
+        except Exception as e:
+            print(f"Could not create the model: {type(e).__name__}. "
+                  "Check LLM_PROVIDER, LLM_MODEL and the provider's key.", file=sys.stderr)
+            return 2
     else:
         provider = model_name = "injected"
 

@@ -50,10 +50,14 @@ def build_graph(model, db_path: str):
     def answer(state: State):
         text = ("Question: " + state["question"] + "\n\nSQL:\n" + state["sql"]
                 + "\n\nColumns: " + ", ".join(state["columns"])
-                + "\nRows:\n" + "\n".join(str(r) for r in state["rows"]))
+                + "\nRows:\n" + "\n".join(
+                    "(" + ", ".join(repr(v)[:200] for v in r) + ")" for r in state["rows"]))
         if state["truncated"]:
             text += "\n\nThe result shows only the first 100 rows."
         reply = model.invoke([("system", ANSWER_SYSTEM), ("user", text)])
+        if not reply.text.strip():
+            return {"error": "empty answer from model", "status": "failed",
+                    "answer": "The question could not be answered. Last error: empty answer from model"}
         return {"answer": reply.text, "status": "answered"}
 
     g = StateGraph(State)

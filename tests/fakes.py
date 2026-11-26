@@ -12,7 +12,7 @@ class FakeModel:
     def _next(self, messages):
         self.calls.append(messages)
         reply = self.replies.pop(0)
-        if isinstance(reply, Exception):
+        if isinstance(reply, BaseException):
             raise reply
         return reply
 

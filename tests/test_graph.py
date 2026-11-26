@@ -71,3 +71,19 @@ def test_braces_in_question(db_path):
     model = FakeModel([{"sql": "SELECT 1"}, "one"])
     final = build_graph(model, db_path).invoke({"question": "what is {x} and {0}?"})
     assert final["status"] == "answered" and "{x}" in text_of(model.calls[0])
+
+def test_empty_answer_is_failed(db_path):
+    final = build_graph(FakeModel([{"sql": "SELECT 1"}, "  "]), db_path).invoke({"question": "q"})
+    assert final["status"] == "failed"
+    assert final["answer"].startswith("The question could not be answered.")
+
+def test_long_values_are_cut_in_the_answer_prompt(tmp_path):
+    path = tmp_path / "long.db"
+    with closing(sqlite3.connect(path)) as rw:
+        rw.execute("CREATE TABLE t (v TEXT)")
+        rw.execute("INSERT INTO t VALUES (?)", ("x" * 10_000,))
+        rw.commit()
+    model = FakeModel([{"sql": "SELECT v FROM t"}, "ok"])
+    final = build_graph(model, str(path)).invoke({"question": "q"})
+    assert len(text_of(model.calls[1])) < 2000
+    assert len(final["rows"][0][0]) == 10_000
