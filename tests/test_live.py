@@ -1,5 +1,6 @@
 """Opt-in tests against a real model: RUN_LIVE=1 .venv/bin/pytest tests/test_live.py"""
 import os
+import re
 
 import pytest
 
@@ -63,7 +64,10 @@ def test_passed_asks_back(db_path, tmp_path):
     choices = rec["steps"][-1]["output"].get("choices", [])
     verify(rec, "clarification",
            None if 2 <= len(choices) <= 3 else f"{len(choices)} choices",
-           "execute_sql ran" if any(s["node"] == "execute_sql" for s in rec["steps"]) else None)
+           "execute_sql ran" if any(s["node"] == "execute_sql" for s in rec["steps"]) else None,
+           None if all(re.search(r"\d", c) for c in choices) else f"a choice has no concrete cutoff: {choices}")
+    picked = run(choices[0], db_path, tmp_path)       # a picked choice is answered, not asked about again
+    verify(picked, "answered", check_answer(picked["answer"], [], []))
 
 
 def test_choices_keep_conditions(db_path, tmp_path):
@@ -81,3 +85,23 @@ def test_library_on_loan(library_path, tmp_path):
     verify(rec, "answered",
            rows_problem(rec, [{"book": "Dracula"}, {"book": "Dune"}, {"book": "Emma"}], {"book": ("title", "book")}),
            check_answer(rec["answer"], ["Dracula", "Dune", "Emma"], ["Ulysses", "Beloved", "Walden", "Persuasion"]))
+
+
+def test_missing_data_is_said_not_invented(db_path, tmp_path):
+    rec = run("What is each teacher's email address?", db_path, tmp_path)
+    choices = rec["steps"][-1]["output"].get("choices", [])
+    invented = [c for c in choices if "@" in c or "format" in c.lower() or "example" in c.lower()]
+    verify(rec, "clarification",
+           None if "email" in rec["answer"].lower() else "the reply does not say what is missing",
+           f"a choice invents a rule: {invented}" if invented else None,
+           "execute_sql ran" if any(s["node"] == "execute_sql" for s in rec["steps"]) else None)
+    if choices:      # an offered question must be answerable from what exists: asking it gives the names
+        follow = run(choices[0], db_path, tmp_path)
+        verify(follow, "answered", check_answer(follow["answer"], ["Lira Hoxha", "Besnik Krasniqi", "Mira Berisha"]))
+
+
+def test_averages_are_rounded_to_two_places(db_path, tmp_path):
+    rec = run("What is the average grade in the classes taught by Besnik Krasniqi?", db_path, tmp_path)
+    verify(rec, "answered",
+           rows_problem(rec, [{"value": 91.3}], {"value": ("",)}),
+           None if "91.33" in rec["answer"] and "91.333" not in rec["answer"] else f"not rounded to two places: {rec['answer']}")
