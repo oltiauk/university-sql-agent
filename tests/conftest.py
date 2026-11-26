@@ -1,10 +1,6 @@
-from pathlib import Path
-
 import pytest
 
-from db.build import build
-
-ROOT = Path(__file__).parent.parent
+from db.build import ROOT, build
 
 
 @pytest.fixture

@@ -1,12 +1,9 @@
 import sqlite3
 from contextlib import closing
-from pathlib import Path
 
 import pytest
 
-from db.build import build
-
-ROOT = Path(__file__).parent.parent
+from db.build import ROOT, build
 
 
 def rows(db_path, sql):
@@ -61,16 +58,13 @@ def test_totals(db_path):
 
 def test_constraints(db_path):
     with closing(sqlite3.connect(db_path)) as conn:
-        _check_constraints(conn)
-
-def _check_constraints(conn):
-    for bad in ("INSERT INTO students(name) VALUES (NULL)",
-                "INSERT INTO teachers(name) VALUES (NULL)",
-                "INSERT INTO enrollments(student_id, offering_id, grade) VALUES (1, 6, 101)",
-                "INSERT INTO enrollments(student_id, offering_id, grade) VALUES (1, 1, 50)"):
-        with pytest.raises(sqlite3.IntegrityError):
-            conn.execute(bad)
-    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        for bad in ("INSERT INTO students(name) VALUES (NULL)",
+                    "INSERT INTO teachers(name) VALUES (NULL)",
+                    "INSERT INTO enrollments(student_id, offering_id, grade) VALUES (1, 6, 101)",
+                    "INSERT INTO enrollments(student_id, offering_id, grade) VALUES (1, 1, 50)"):
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(bad)
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 def test_build_twice(db_path):
     build(ROOT / "db/schema.sql", ROOT / "db/seed.sql", db_path)

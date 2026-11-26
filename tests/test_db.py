@@ -3,6 +3,7 @@ from contextlib import closing
 
 import pytest
 
+from db.build import ROOT, build
 from agent.db import check_sql, connect, get_schema, run_query
 
 
@@ -38,11 +39,12 @@ def test_schema_lists_tables_and_sample_rows(conn):
 def test_schema_odd_tables(tmp_path):
     path = tmp_path / "odd.db"
     rw = sqlite3.connect(path)
-    rw.executescript('CREATE TABLE empty_one (a TEXT); CREATE TABLE "order" (x INT); INSERT INTO "order" VALUES (7);')
+    rw.executescript('CREATE TABLE empty_one (a TEXT); CREATE TABLE "order" (x INT); INSERT INTO "order" VALUES (7); CREATE TABLE "a""b" (x INT); INSERT INTO "a""b" VALUES (9); CREATE VIEW v AS SELECT x FROM "order";')
     rw.close()
     with closing(connect(str(path))) as c:
         schema = get_schema(c)
     assert "CREATE TABLE empty_one" in schema and 'CREATE TABLE "order"' in schema and "7" in schema
+    assert 'CREATE TABLE "a""b"' in schema and "CREATE VIEW v" in schema
 
 
 @pytest.mark.parametrize("sql", ["SELECT 1", "select 1;", "  SELECT 1  \n", "WITH x AS (SELECT 1) SELECT * FROM x"])
@@ -86,3 +88,30 @@ def test_row_cap(tmp_path):
         assert (len(rows), truncated) == (100, False)
         _, rows, truncated = run_query(conn, "SELECT i FROM n")
         assert (len(rows), truncated) == (100, True)
+
+
+def test_connect_odd_path(tmp_path):
+    path = tmp_path / "a?b#c d%41.db"
+    build(ROOT / "db/schema.sql", ROOT / "db/seed.sql", path)
+    with closing(connect(str(path))) as c:
+        assert c.execute("SELECT COUNT(*) FROM students").fetchall() == [(8,)]
+        with pytest.raises(sqlite3.OperationalError):
+            c.execute("DELETE FROM students")
+    assert [p.name for p in tmp_path.iterdir()] == ["a?b#c d%41.db"]
+
+
+def test_query_time_limit(conn, monkeypatch):
+    monkeypatch.setattr("agent.db.TIMEOUT_SECONDS", 0.2)
+    with pytest.raises(sqlite3.OperationalError):
+        run_query(conn, "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n) SELECT count(*) FROM n")
+    assert run_query(conn, "SELECT 1")[1] == [(1,)]
+
+
+def test_schema_truncates_long_values(tmp_path):
+    path = tmp_path / "long.db"
+    rw = sqlite3.connect(path)
+    rw.execute("CREATE TABLE t (a TEXT)")
+    rw.execute("INSERT INTO t VALUES (?)", ("x" * 10_000,))
+    rw.commit(); rw.close()
+    with closing(connect(str(path))) as c:
+        assert len(get_schema(c)) < 1000
