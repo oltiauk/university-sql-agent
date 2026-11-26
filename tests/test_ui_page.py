@@ -30,3 +30,8 @@ def test_start_screen_keeps_its_design():
 def test_key_is_not_stored_by_the_page():
     for forbidden in ("localStorage", "sessionStorage", "document.cookie", "?key=", "&key="):
         assert forbidden not in PAGE
+
+
+def test_database_viewer_is_in_the_page():
+    for needed in ("/api/tables", "/api/table?name=", 'data-act="db"', "encodeURIComponent", "Browse the database"):
+        assert needed in PAGE

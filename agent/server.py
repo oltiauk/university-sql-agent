@@ -2,14 +2,18 @@ import argparse
 import json
 import logging
 import os
+import sqlite3
 import threading
+import urllib.parse
 import urllib.request
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 
+from agent.db import connect
 from agent.graph import build_graph, combine
 from agent.trace import run_traced
 
@@ -17,6 +21,7 @@ PROVIDERS = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "olla
 UI = Path(__file__).with_name("ui.html")
 MAX_BODY = 1_000_000
 MAX_QUESTION = 2000
+MAX_BROWSE_ROWS = 1000   # ponytail: the viewer shows at most this many rows; page through or search if a table is ever larger
 log = logging.getLogger("agent.server")
 
 
@@ -28,6 +33,16 @@ def fetch_ollama_tags() -> dict:
 def default_create_model(provider, model_name, key):
     extra = {"api_key": key} if key else {}
     return init_chat_model(model_name, model_provider=provider, **extra)
+
+
+def table_names(conn) -> dict:
+    """{name: 'table' | 'view'} as sqlite_master lists them; the only names the viewer will put into SQL"""
+    return dict(conn.execute("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') "
+                             "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY rowid"))
+
+
+def quoted(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
 
 
 def key_in_environment(provider) -> bool:
@@ -125,11 +140,38 @@ def make_server(db: str, traces: str = "traces", examples: list[str] = (), port:
                     if isinstance(record, dict) and record.get("database") == db:
                         runs.append(record)
                 return 200, {"runs": runs[-20:]}   # ponytail: reads every trace file; index them if the folder gets large
+            if (method, path) == ("GET", "/api/tables"):
+                tables = []
+                with closing(connect(db)) as conn:
+                    for name, kind in table_names(conn).items():
+                        try:
+                            rows = conn.execute(f"SELECT COUNT(*) FROM {quoted(name)}").fetchone()[0]
+                        except sqlite3.Error:
+                            rows = None   # a broken view is still listed; opening it shows the error
+                        tables.append({"name": name, "kind": kind, "rows": rows})
+                return 200, {"tables": tables}
+            if (method, path) == ("GET", "/api/table"):
+                return self._table(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("name", [None])[0])
             if (method, path) == ("POST", "/api/setup"):
                 return self._setup(body)
             if (method, path) == ("POST", "/api/ask"):
                 return self._ask(body)
             return 404, {"error": "Not found"}
+
+        def _table(self, name):
+            if not name:
+                return 400, {"error": "Missing name"}
+            with closing(connect(db)) as conn:
+                if name not in table_names(conn):   # only an exact name from sqlite_master reaches the SQL below
+                    return 404, {"error": "No such table"}
+                try:
+                    total = conn.execute(f"SELECT COUNT(*) FROM {quoted(name)}").fetchone()[0]
+                    cur = conn.execute(f"SELECT * FROM {quoted(name)} LIMIT {MAX_BROWSE_ROWS}")
+                    rows = cur.fetchall()
+                except sqlite3.Error as e:
+                    return 400, {"error": type(e).__name__}   # class name only, never the message
+            return 200, {"name": name, "columns": [d[0] for d in cur.description], "rows": rows,
+                         "total": total, "truncated": total > MAX_BROWSE_ROWS}
 
         def _setup(self, body):
             provider, name, key = body.get("provider"), body.get("model"), body.get("key")

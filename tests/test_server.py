@@ -1,7 +1,10 @@
 import http.client
 import json
 import logging
+import sqlite3
 import threading
+import urllib.parse
+from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
@@ -213,3 +216,65 @@ def test_handler_helpers_are_not_http_methods(app):
                 status = None
             assert status == 501, (method, path, status)
     assert app.created == [] and not list(app.traces.glob("*.json"))
+
+def test_tables_are_listed_with_row_counts(app):
+    status, out = app.get("/api/tables")
+    assert status == 200
+    assert {t["name"]: t["rows"] for t in out["tables"]} == {"teachers": 3, "students": 8, "courses": 4, "offerings": 6, "enrollments": 19}
+    assert all(t["kind"] == "table" for t in out["tables"])
+
+def test_a_table_shows_every_row(app):
+    status, out = app.get("/api/table?name=enrollments")
+    assert status == 200 and out["columns"] == ["student_id", "offering_id", "grade"]
+    assert len(out["rows"]) == out["total"] == 19 and out["truncated"] is False
+    assert [1, 1, 95.0] in out["rows"] and [4, 6, None] in out["rows"]      # a NULL is kept as null
+
+def test_viewer_works_before_a_model_is_chosen(app):
+    assert app.get("/api/state")[1]["ready"] is False
+    assert app.get("/api/table?name=students")[0] == 200
+
+@pytest.mark.parametrize("name", ["nope", "sqlite_master", 'students"; DROP TABLE students; --', "students; DELETE FROM students", "STUDENTS ", ""])
+def test_only_real_table_names_are_accepted(app, name):
+    status, _ = app.get("/api/table?name=" + urllib.parse.quote(name))
+    assert status in (400, 404)
+    assert app.get("/api/table?name=students")[1]["total"] == 8        # nothing was changed
+
+def test_a_missing_name_is_400_and_an_unknown_one_404(app):
+    assert app.get("/api/table") == (400, {"error": "Missing name"})
+    assert app.get("/api/table?name=nope") == (404, {"error": "No such table"})
+
+def test_odd_table_names_and_views_and_the_row_cap(tmp_path, monkeypatch):
+    for name in ("LLM_PROVIDER", "LLM_MODEL", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    path = tmp_path / "odd.db"
+    with closing(sqlite3.connect(path)) as conn, conn:
+        conn.executescript("""
+            CREATE TABLE "a""b" (x INT); INSERT INTO "a""b" VALUES (7);
+            CREATE TABLE big (i INT);
+            CREATE VIEW v AS SELECT i FROM big WHERE i < 3;
+            CREATE TABLE blobs (b BLOB); INSERT INTO blobs VALUES (X'00FF');
+            CREATE TABLE gone (x INT); CREATE VIEW broken AS SELECT x FROM gone; DROP TABLE gone;
+        """)
+        conn.executemany("INSERT INTO big VALUES (?)", [(i,) for i in range(1001)])
+    server = make_server(str(path), traces=str(tmp_path / "traces"))
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+    thread.start()
+    get = lambda p: (lambda s, b: (s, json.loads(b)))(*_request(server.server_address[1], "GET", p))
+    try:
+        tables = get("/api/tables")[1]["tables"]
+        assert {(t["name"], t["kind"]) for t in tables} >= {('a"b', "table"), ("v", "view")}
+        assert {t["name"]: t["rows"] for t in tables}["broken"] is None      # listed, though it cannot be counted
+        assert get("/api/table?name=" + urllib.parse.quote('a"b'))[1]["rows"] == [[7]]
+        assert get("/api/table?name=v")[1]["rows"] == [[0], [1], [2]]
+        assert get("/api/table?name=blobs")[0] == 200
+        status, big = get("/api/table?name=big")
+        assert status == 200 and len(big["rows"]) == 1000 and big["total"] == 1001 and big["truncated"] is True
+        assert get("/api/table?name=broken") == (400, {"error": "OperationalError"})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+def test_viewer_requests_obey_the_host_check(app):
+    assert app.get("/api/tables", headers={"Host": "evil.example"})[0] == 403
+    assert app.get("/api/table?name=students", headers={"Host": "evil.example"})[0] == 403

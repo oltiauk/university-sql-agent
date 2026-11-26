@@ -23,24 +23,31 @@ Open `.env` and fill in three values:
 
 `.env` is listed in `.gitignore`, so the key is not committed.
 
-Build the database, ask a question, then open the trace of that run:
+Build the database and start the web app:
 
 ```bash
 python db/build.py
+python -m agent.server --examples db/university_questions.txt
+```
+
+The first command creates `university.db` from `db/schema.sql` and `db/seed.sql`. The second prints the address to open, `http://127.0.0.1:8000/`; if `.env` has no model settings, the page asks for them on its setup screen.
+
+Or from the command line, ask a question, then open the trace of that run:
+
+```bash
 python -m agent.cli "Which students scored above the class average in Databases in Fall 2025?"
 python -m agent.cli --trace <the run id it printed>
 ```
 
-`db/build.py` creates `university.db` from `db/schema.sql` and `db/seed.sql`. A question prints the answer and `run: <run id>`; the SQL and rows are in the trace. By default the question goes to `university.db` in the current directory and traces go to `traces/`; `--db PATH` and `--traces DIR` change these.
+A question prints the answer and `run: <run id>`; the SQL and rows are in the trace. By default the question goes to `university.db` in the current directory and traces go to `traces/`; `--db PATH` and `--traces DIR` change these.
 
 Exit codes: 0 for a normal end, 1 when the run ended `failed`, `mismatch` or `error`, 2 for a usage or setup problem.
 
 ## Web interface
 
-The same agent can be used from a page in the browser. Start the local server, then open the address it prints (`http://127.0.0.1:8000/` by default; `--port` changes it):
+The same agent can be used from a page in the browser; Quick start shows how to start it. `--port` changes the port (8000 by default). For the library database (see "Works on any database"):
 
 ```bash
-python -m agent.server --examples db/university_questions.txt
 python -m agent.server --db library.db --examples db/library_questions.txt
 ```
 
@@ -49,6 +56,8 @@ python -m agent.server --db library.db --examples db/library_questions.txt
 If `.env` names a provider, a model and (for OpenAI or Anthropic) a key, the page opens straight on the chat. Otherwise it opens on a setup screen that asks which AI should answer: Claude, OpenAI or Ollama. For Claude and OpenAI it asks for the model name and the API key; the key field is replaced by a note when the provider's key variable is already set in the environment. For Ollama it lists the models installed on this computer and needs no key. A typed key is sent once to the local server and kept in its memory until you stop it. It is not written to `.env`, a trace or the browser's storage. The model name under the question box opens the setup screen again.
 
 Every answer on the page is a saved run, and its trace panel shows that run's trace file. On opening, the page shows the last 20 runs for the database. A question back shows its choices as buttons: clicking one asks it as a new question, and typed words are added to the original in brackets, as in the command line.
+
+Clicking the database name under the question box opens a list of its tables and views; picking one shows its rows, up to 1,000. The viewer is for the person using the page: it reads the file read-only and does not change what the model is given, which is still the table definitions and three sample rows of each.
 
 ## How it works
 

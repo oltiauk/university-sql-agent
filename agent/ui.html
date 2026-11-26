@@ -36,6 +36,7 @@ h1,h2,p,ol{margin:0}
 .pill{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;font-size:12px;font-weight:500;border:0;border-radius:999px}
 .trace-btn{color:#1B2333;background:#EEF3FB}
 .trace-btn[aria-pressed="true"]{color:#FFFFFF;background:#1B2333}
+.trace-btn[aria-pressed="true"] .meta{color:inherit;opacity:.7}
 .meta{font-size:12px;color:#5B6676}
 .bottom{display:flex;flex-direction:column;gap:12px}
 .example{text-align:left;padding:7px 14px;font-size:13px;color:#3D4756;background:#FFFFFF;border:1px solid #DCE4F0;border-radius:999px}
@@ -115,7 +116,8 @@ var NAMES = { anthropic: 'Claude', openai: 'OpenAI', ollama: 'Ollama' };
 
 // info: /api/state; turns: [{ record, bubble, error, from }]; sel: index of the turn whose trace is open
 // setup: the start screen while it shows, else null: { p: provider id, ollama: null while asking, pick, busy }
-var state = { info: null, turns: [], sel: null, busy: false, setup: null, draft: '' };
+// db: the database viewer while it shows (in place of the trace), else null: { tables, pick, data, err }
+var state = { info: null, turns: [], sel: null, busy: false, setup: null, draft: '', db: null };
 
 function esc(v) {
   return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -126,6 +128,7 @@ function out(s) { return (s && s.output && typeof s.output === 'object') ? s.out
 function lastOut(rec) { var st = arr(rec.steps); return out(st[st.length - 1]); }
 
 var ICON_TRACE = '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="3.5" cy="3.5" r="1.5"></circle><circle cx="3.5" cy="12.5" r="1.5"></circle><path d="M3.5 5v6M7.5 3.5h6M7.5 12.5h6"></path></svg>';
+var ICON_CLOSE = '<svg aria-hidden="true" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"></path></svg>';
 function iconUp(size) {
   return '<svg aria-hidden="true" width="' + size + '" height="' + size + '" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"></path></svg>';
 }
@@ -233,7 +236,7 @@ function traceHtml(rec) {
     '<h2 class="title">Trace</h2>' +
     '<p class="trace-q">' + esc(rec.question) + '</p>' +
     '<p class="mono small">' + head + '</p></div>' +
-    '<button type="button" class="round close" data-act="close" aria-label="Close trace"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"></path></svg></button></div>';
+    '<button type="button" class="round close" data-act="close" aria-label="Close trace">' + ICON_CLOSE + '</button></div>';
   h += '<ol class="steps">';
   arr(rec.steps).forEach(function (s, i) {
     var v = stepView(s, i, rec);
@@ -243,6 +246,52 @@ function traceHtml(rec) {
     h += v.html + '</div></li>';
   });
   return h + '</ol></aside>';
+}
+
+function dbHtml() {
+  var v = state.db, d = v.data;
+  var h = '<aside class="card trace" aria-label="Database"><div class="trace-head"><div>' +
+    '<h2 class="title">Database</h2><p class="mono small">' + esc(state.info.database) + '</p></div>' +
+    '<button type="button" class="round close" data-act="close" aria-label="Close the database">' + ICON_CLOSE + '</button></div>';
+  if (v.tables) {
+    h += '<div class="row">';
+    v.tables.forEach(function (t, n) {
+      h += '<button type="button" class="pill trace-btn" data-act="table" data-t="' + n + '" aria-pressed="' + (n === v.pick) + '">' +
+        '<span class="mono">' + esc(t.name) + '</span>' + (t.kind === 'view' ? '<span class="meta">view</span>' : '') +
+        (t.rows == null ? '' : '<span class="meta">' + esc(Number(t.rows).toLocaleString('en-US')) + '</span>') + '</button>';
+    });
+    h += '</div>';
+  }
+  if (v.err) return h + '<p class="err">' + esc(v.err) + '</p></aside>';
+  if (!d) return h + (v.tables && !v.tables.length ? '<p class="meta">No tables</p>' : '<p class="meta">Loading…</p>') + '</aside>';
+  var rows = arr(d.rows), total = Number(d.total).toLocaleString('en-US');
+  h += '<div class="step-body">';
+  if (rows.length) h += '<p class="small">' + (d.truncated ? 'Showing the first ' + rows.length.toLocaleString('en-US') + ' of ' + esc(total) + ' rows' : esc(total) + (d.total === 1 ? ' row' : ' rows')) + '</p>';
+  return h + rowsHtml({ columns: d.columns, rows: rows }).html + '</div></aside>';
+}
+
+// the viewer asks for the table list when it opens, then for the picked table's rows
+function openDb() {
+  var v = state.db = { tables: null, pick: null, data: null, err: null };
+  state.sel = null;
+  render();
+  send('/api/tables').then(function (r) {
+    if (state.db !== v) return;   // closed meanwhile
+    if (!r.ok) { v.err = r.data.error; return render(); }
+    v.tables = arr(r.data.tables);
+    if (v.tables.length) pickTable(0); else render();
+  });
+}
+
+function pickTable(n) {
+  var v = state.db;
+  v.pick = n; v.data = null; v.err = null;
+  render();
+  send('/api/table?name=' + encodeURIComponent(v.tables[n].name)).then(function (r) {
+    if (state.db !== v || v.pick !== n) return;   // another table was picked, or the viewer closed, meanwhile
+    if (r.ok) v.data = r.data; else v.err = r.data.error;
+    render();
+  });
 }
 
 function chatHtml() {
@@ -261,7 +310,7 @@ function chatHtml() {
   h += '<form class="composer" data-form="ask">' +
     '<label class="sr" for="q">Your question</label>' +
     '<input id="q" type="text" placeholder="Ask a question" autocomplete="off"' + dis() + '>' +
-    '<div class="bar"><div class="row"><span class="tag">' + esc(info.database) + '</span>' +
+    '<div class="bar"><div class="row"><button type="button" class="tag" data-act="db" aria-label="Browse the database" aria-expanded="' + !!state.db + '">' + esc(info.database) + '</button>' +
     '<button type="button" class="tag" data-act="setup" aria-label="Change the model"' + dis() + '>' + esc((own(NAMES, info.provider) || info.provider) + ' · ' + info.model) + '</button></div>' +
     '<button type="submit" class="round" aria-label="Ask" style="width:36px;height:36px"' + dis() + '>' + iconUp(15) + '</button></div></form></div></main>';
   return h;
@@ -364,7 +413,7 @@ function render(scrollTo) {
   var q = document.getElementById('q'), typed = q ? q.value : state.draft;
   state.draft = '';
   var cur = state.turns[state.sel];
-  app.innerHTML = chatHtml() + (cur && cur.record ? traceHtml(cur.record) : '');
+  app.innerHTML = chatHtml() + (state.db ? dbHtml() : cur && cur.record ? traceHtml(cur.record) : '');
   document.getElementById('q').value = typed;
   if (scrollTo != null) {
     var el = app.querySelector('[data-turn="' + scrollTo + '"]');
@@ -389,6 +438,7 @@ function load() {
   }).then(function (r) {
     state.turns = arr(r.data.runs).map(function (r) { return { record: r, bubble: r.question }; });
     state.sel = state.turns.length ? state.turns.length - 1 : null;
+    state.db = null;
     if (state.info.ready) render(state.sel); else openSetup(defaultProvider());
   }).catch(function () {
     app.innerHTML = '<main class="card chat"><p>Could not reach the app</p></main>';
@@ -405,7 +455,7 @@ function ask(body, bubble, from, typed) {
   state.busy = true;
   render(i);
   send('/api/ask', body).then(function (r) {
-    if (r.ok) { t.record = r.data; state.sel = i; } else { t.error = r.data.error; }
+    if (r.ok) { t.record = r.data; if (!state.db) state.sel = i; } else { t.error = r.data.error; }   // an open viewer stays open
     state.busy = false;
     render(i);
     var q = document.getElementById('q');
@@ -436,11 +486,17 @@ app.addEventListener('click', function (ev) {
   } else if (act === 'setup') {
     state.draft = document.getElementById('q').value;
     openSetup(defaultProvider());
+  } else if (act === 'db') {
+    if (state.db) { state.db = null; render(); } else openDb();
+  } else if (act === 'table') {
+    pickTable(Number(b.getAttribute('data-t')));
   } else if (act === 'toggle') {
     state.sel = state.sel === i ? null : i;
+    state.db = null;
     render();
   } else if (act === 'close') {
     state.sel = null;
+    state.db = null;
     render();
   } else if (act === 'pick' && !fresh) {
     var choice = arr(lastOut(state.turns[i].record).choices)[Number(b.getAttribute('data-c'))];
