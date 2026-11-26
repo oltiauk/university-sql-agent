@@ -137,3 +137,56 @@ def test_combine():
 def test_single_value_flag_is_kept(db_path):
     model = FakeModel([{"sql": GOOD, "expects_single_value": True}, "8"])
     assert build_graph(model, db_path).invoke({"question": "q"})["expects_single_value"] is True
+
+CLASS_GRADES = """SELECT e.grade AS grade FROM enrollments e JOIN offerings o ON o.id = e.offering_id
+JOIN courses c ON c.id = o.course_id WHERE c.title = 'Databases' AND o.semester = '2025-Fall'"""
+
+def run(db_path, reply, *more):
+    model = FakeModel([reply, *more])
+    return build_graph(model, db_path).invoke({"question": "q"}), model
+
+def test_no_rows_is_nothing_matched(db_path):
+    final, model = run(db_path, {"sql": "SELECT name FROM students WHERE name = 'Zed'"})
+    assert (final["status"], final["answer"]) == ("empty", "Nothing matched.")
+    assert len(model.calls) == 1                     # answer step never called
+
+def test_single_value_expected_but_five_rows(db_path):
+    final, model = run(db_path, {"sql": CLASS_GRADES, "expects_single_value": True})
+    assert final["status"] == "mismatch"
+    assert final["answer"] == "The question asks for a single value, but the query returned 5 rows."
+    assert len(final["rows"]) == 5 and len(model.calls) == 1   # rows kept for the trace; model not asked to pick
+
+def test_single_value_expected_but_two_columns(db_path):
+    final, _ = run(db_path, {"sql": "SELECT 1 AS a, 2 AS b", "expects_single_value": True})
+    assert final["answer"] == "The question asks for a single value, but the query returned 2 columns."
+
+def test_null_average_is_no_value(db_path):
+    sql = "SELECT AVG(e.grade) AS average_grade FROM enrollments e WHERE e.offering_id = 6"
+    final, model = run(db_path, {"sql": sql, "expects_single_value": True})
+    assert (final["status"], final["answer"]) == ("no_value", "No value is available for average_grade.")
+    assert len(model.calls) == 1
+
+def test_single_null_is_no_value(db_path):
+    final, _ = run(db_path, {"sql": "SELECT NULL AS x", "expects_single_value": True})
+    assert final["status"] == "no_value"
+
+def test_all_null_row_without_flag_is_no_value(db_path):
+    final, _ = run(db_path, {"sql": "SELECT NULL AS a, NULL AS b"})
+    assert final["answer"] == "No value is available for a, b."
+
+def test_zero_is_answered(db_path):
+    sql = "SELECT COUNT(*) AS n FROM students WHERE name = 'Zed'"
+    final, model = run(db_path, {"sql": sql, "expects_single_value": True}, "There are 0.")
+    assert (final["status"], final["answer"]) == ("answered", "There are 0.")
+    assert "0" in text_of(model.calls[1])
+
+def test_list_result_without_flag_is_answered(db_path):
+    final, _ = run(db_path, {"sql": CLASS_GRADES}, "five values")
+    assert final["status"] == "answered"
+
+def test_partly_null_row_is_answered(db_path):
+    final, _ = run(db_path, {"sql": "SELECT 1 AS a, NULL AS b"}, "a is 1")
+    assert final["status"] == "answered"
+
+def test_check_result_node_exists(db_path):
+    assert "check_result" in set(build_graph(FakeModel([]), db_path).get_graph().nodes)

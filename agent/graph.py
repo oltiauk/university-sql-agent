@@ -23,6 +23,7 @@ class State(TypedDict, total=False):
     attempts: int
     clarification: str
     choices: list[str]
+    checked: bool
 
 
 FAILED = "The question could not be answered. Last error: "
@@ -70,6 +71,18 @@ def build_graph(model, db_path: str):
             return {"error": str(e)}
         return {"columns": columns, "rows": rows, "truncated": truncated, "error": ""}
 
+    def check_result(state: State):
+        rows, columns = state["rows"], state["columns"]
+        if not rows:
+            return {"status": "empty", "answer": "Nothing matched."}
+        if state.get("expects_single_value") and (len(rows) != 1 or len(columns) != 1):
+            what = (f"{len(rows)} rows" if len(rows) != 1 else f"{len(columns)} columns")
+            return {"status": "mismatch",
+                    "answer": f"The question asks for a single value, but the query returned {what}."}
+        if len(rows) == 1 and all(v is None for v in rows[0]):
+            return {"status": "no_value", "answer": "No value is available for " + ", ".join(columns) + "."}
+        return {"checked": True}   # an empty update reaches the trace as None, which breaks it
+
     def answer(state: State):
         text = ("Question: " + state["question"] + "\n\nSQL:\n" + state["sql"]
                 + "\n\nColumns: " + ", ".join(state["columns"])
@@ -87,11 +100,13 @@ def build_graph(model, db_path: str):
     g.add_node("load_schema", load_schema)
     g.add_node("generate_sql", generate_sql)
     g.add_node("execute_sql", execute_sql)
+    g.add_node("check_result", check_result)
     g.add_node("answer", answer)
     g.add_edge(START, "load_schema")
     g.add_edge("load_schema", "generate_sql")
     g.add_conditional_edges("generate_sql", lambda s: END if s.get("status") else "execute_sql")
     g.add_conditional_edges("execute_sql", lambda s: (
-        ("generate_sql" if s["attempts"] < 2 else END) if s.get("error") else "answer"))
+        ("generate_sql" if s["attempts"] < 2 else END) if s.get("error") else "check_result"))
+    g.add_conditional_edges("check_result", lambda s: END if s.get("status") else "answer")
     g.add_edge("answer", END)
     return g.compile()
