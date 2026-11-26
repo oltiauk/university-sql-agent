@@ -1,57 +1,73 @@
 {
-  "run_id": "20261126-060948-eab3d7",
-  "started_at": "2026-11-26T06:09:48.851027+00:00",
-  "question": "How many students are there?",
+  "run_id": "20261126-104401-35bbfd",
+  "started_at": "2026-11-26T10:44:01.666931+00:00",
+  "question": "Which courses did Arta take, and what grade did she get in each?",
   "database": "university.db",
-  "provider": "scripted",
-  "model": "fake",
-  "status": "failed",
-  "answer": "The question could not be answered. Last error: no such table: pupils",
+  "provider": "openai",
+  "model": "gpt-6-luna",
+  "status": "answered",
+  "answer": "Arta took Databases and earned 95, Algorithms and earned 98, and Machine Learning and earned 99.",
   "steps": [
     {
       "node": "load_schema",
-      "at": "2026-11-26T06:09:48.851514+00:00",
-      "duration_ms": 0,
+      "at": "2026-11-26T10:44:01.667787+00:00",
+      "duration_ms": 1,
       "output": {
         "schema": "CREATE TABLE teachers (\n    id   INTEGER PRIMARY KEY,\n    name TEXT NOT NULL\n)\n(1, 'Lira Hoxha')\n(2, 'Besnik Krasniqi')\n(3, 'Mira Berisha')\n\nCREATE TABLE students (\n    id   INTEGER PRIMARY KEY,\n    name TEXT NOT NULL\n)\n(1, 'Arta')\n(2, 'Blerim')\n(3, 'Dren')\n\nCREATE TABLE courses (\n    id    INTEGER PRIMARY KEY,\n    code  TEXT NOT NULL UNIQUE,\n    title TEXT NOT NULL\n)\n(1, 'CS101', 'Databases')\n(2, 'CS102', 'Algorithms')\n(3, 'MA101', 'Statistics')\n\nCREATE TABLE offerings (\n    id         INTEGER PRIMARY KEY,\n    course_id  INTEGER NOT NULL REFERENCES courses(id),\n    teacher_id INTEGER NOT NULL REFERENCES teachers(id),\n    semester   TEXT NOT NULL,\n    UNIQUE (course_id, teacher_id, semester)\n)\n(1, 1, 1, '2025-Fall')\n(2, 2, 2, '2025-Fall')\n(3, 3, 3, '2025-Fall')\n\nCREATE TABLE enrollments (\n    student_id  INTEGER NOT NULL REFERENCES students(id),\n    offering_id INTEGER NOT NULL REFERENCES offerings(id),\n    grade       REAL CHECK (grade BETWEEN 0 AND 100),\n    PRIMARY KEY (student_id, offering_id)\n)\n(1, 1, 95.0)\n(2, 1, 88.0)\n(3, 1, 82.0)"
       }
     },
     {
       "node": "generate_sql",
-      "at": "2026-11-26T06:09:48.851640+00:00",
-      "duration_ms": 0,
+      "at": "2026-11-26T10:44:03.151162+00:00",
+      "duration_ms": 1483,
       "output": {
-        "sql": "SELECT COUNT(*) AS n FROM student",
+        "sql": "SELECT c.title AS course_title, e.grade AS grade\nFROM students s\nJOIN enrollments e ON e.student_id = s.id\nJOIN offerings o ON o.id = e.offering_id\nJOIN courses c ON c.id = o.course_id\nWHERE s.name = 'Arta'",
         "expects_single_value": false,
         "attempts": 1
       }
     },
     {
       "node": "execute_sql",
-      "at": "2026-11-26T06:09:48.851847+00:00",
+      "at": "2026-11-26T10:44:03.151654+00:00",
       "duration_ms": 0,
       "output": {
-        "error": "no such table: student"
+        "columns": [
+          "course_title",
+          "grade"
+        ],
+        "rows": [
+          [
+            "Databases",
+            95.0
+          ],
+          [
+            "Algorithms",
+            98.0
+          ],
+          [
+            "Machine Learning",
+            99.0
+          ]
+        ],
+        "truncated": false,
+        "error": ""
       }
     },
     {
-      "node": "generate_sql",
-      "at": "2026-11-26T06:09:48.851986+00:00",
+      "node": "check_result",
+      "at": "2026-11-26T10:44:03.151806+00:00",
       "duration_ms": 0,
       "output": {
-        "sql": "SELECT COUNT(*) AS n FROM pupils",
-        "expects_single_value": false,
-        "attempts": 2
+        "checked": true
       }
     },
     {
-      "node": "execute_sql",
-      "at": "2026-11-26T06:09:48.852161+00:00",
-      "duration_ms": 0,
+      "node": "answer",
+      "at": "2026-11-26T10:44:04.097482+00:00",
+      "duration_ms": 946,
       "output": {
-        "error": "no such table: pupils",
-        "status": "failed",
-        "answer": "The question could not be answered. Last error: no such table: pupils"
+        "answer": "Arta took Databases and earned 95, Algorithms and earned 98, and Machine Learning and earned 99.",
+        "status": "answered"
       }
     }
   ]

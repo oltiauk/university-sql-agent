@@ -39,7 +39,7 @@ SQL that ran:
 SELECT COUNT(*) AS student_count FROM students
 ```
 
-Run id: `20261126-060948-2af9a3`, trace: [traces/20261126-060948-2af9a3.json](traces/20261126-060948-2af9a3.json)
+Run id: `20261126-104348-7ede58`, trace: [traces/20261126-104348-7ede58.json](traces/20261126-104348-7ede58.json)
 
 ## A query that fails twice
 
@@ -59,7 +59,7 @@ SQL that ran:
 SELECT COUNT(*) AS n FROM pupils
 ```
 
-Run id: `20261126-060948-eab3d7`, trace: [traces/20261126-060948-eab3d7.json](traces/20261126-060948-eab3d7.json)
+Run id: `20261126-104348-c91dc8`, trace: [traces/20261126-104348-c91dc8.json](traces/20261126-104348-c91dc8.json)
 
 ## One value asked for, five returned
 
@@ -80,7 +80,7 @@ SELECT e.grade AS grade FROM enrollments e JOIN offerings o ON o.id = e.offering
 JOIN courses c ON c.id = o.course_id WHERE c.title = 'Databases' AND o.semester = '2025-Fall'
 ```
 
-Run id: `20261126-060948-c6afbd`, trace: [traces/20261126-060948-c6afbd.json](traces/20261126-060948-c6afbd.json)
+Run id: `20261126-104348-8829b0`, trace: [traces/20261126-104348-8829b0.json](traces/20261126-104348-8829b0.json)
 
 ## Aggregation
 
@@ -96,14 +96,14 @@ SQL that ran:
 
 ```sql
 SELECT AVG(e.grade) AS average_grade
-FROM enrollments e
-JOIN offerings o ON o.id = e.offering_id
-JOIN courses c ON c.id = o.course_id
+FROM enrollments AS e
+JOIN offerings AS o ON o.id = e.offering_id
+JOIN courses AS c ON c.id = o.course_id
 WHERE c.title = 'Databases'
-  AND o.semester = '2025-Fall'
+  AND o.semester = '2025-Fall';
 ```
 
-Run id: `20261126-060948-699e3c`, trace: [traces/20261126-060948-699e3c.json](traces/20261126-060948-699e3c.json)
+Run id: `20261126-104348-6cb69f`, trace: [traces/20261126-104348-6cb69f.json](traces/20261126-104348-6cb69f.json)
 
 ## Join across four tables, with a subquery
 
@@ -118,7 +118,7 @@ Answer: Arta, Blerim, and Dren scored above the class average in Databases in Fa
 SQL that ran:
 
 ```sql
-SELECT s.name AS student_name
+SELECT DISTINCT s.name AS student_name
 FROM students AS s
 JOIN enrollments AS e ON e.student_id = s.id
 JOIN offerings AS o ON o.id = e.offering_id
@@ -132,10 +132,10 @@ WHERE c.title = 'Databases'
       JOIN courses AS c2 ON c2.id = o2.course_id
       WHERE c2.title = 'Databases'
         AND o2.semester = '2025-Fall'
-  )
+  );
 ```
 
-Run id: `20261126-060954-6847bb`, trace: [traces/20261126-060954-6847bb.json](traces/20261126-060954-6847bb.json)
+Run id: `20261126-104352-412509`, trace: [traces/20261126-104352-412509.json](traces/20261126-104352-412509.json)
 
 ## Filter by semester
 
@@ -156,7 +156,7 @@ JOIN offerings AS o ON o.id = e.offering_id
 WHERE o.semester = '2026-Spring';
 ```
 
-Run id: `20261126-060958-01b07e`, trace: [traces/20261126-060958-01b07e.json](traces/20261126-060958-01b07e.json)
+Run id: `20261126-104356-b03a0e`, trace: [traces/20261126-104356-b03a0e.json](traces/20261126-104356-b03a0e.json)
 
 ## Filter by teacher
 
@@ -166,19 +166,19 @@ Question: What is the average grade in the classes taught by Besnik Krasniqi?
 
 Status: answered
 
-Answer: The average grade in classes taught by Besnik Krasniqi is 91.33333333333333.
+Answer: The average grade in classes taught by Besnik Krasniqi is 91.33.
 
 SQL that ran:
 
 ```sql
 SELECT AVG(e.grade) AS average_grade
-FROM enrollments AS e
-JOIN offerings AS o ON e.offering_id = o.id
-JOIN teachers AS t ON o.teacher_id = t.id
-WHERE t.name = 'Besnik Krasniqi'
+FROM teachers AS t
+JOIN offerings AS o ON o.teacher_id = t.id
+JOIN enrollments AS e ON e.offering_id = o.id
+WHERE t.name = 'Besnik Krasniqi';
 ```
 
-Run id: `20261126-061001-1967aa`, trace: [traces/20261126-061001-1967aa.json](traces/20261126-061001-1967aa.json)
+Run id: `20261126-104359-2f6d5f`, trace: [traces/20261126-104359-2f6d5f.json](traces/20261126-104359-2f6d5f.json)
 
 ## Filter by student
 
@@ -188,20 +188,20 @@ Question: Which courses did Arta take, and what grade did she get in each?
 
 Status: answered
 
-Answer: Arta took CS101 Databases and got 95.0, CS102 Algorithms and got 98.0, and CS201 Machine Learning and got 99.0.
+Answer: Arta took Databases and earned 95, Algorithms and earned 98, and Machine Learning and earned 99.
 
 SQL that ran:
 
 ```sql
-SELECT c.code AS course_code, c.title AS course_title, e.grade AS grade
-FROM students AS s
-JOIN enrollments AS e ON e.student_id = s.id
-JOIN offerings AS o ON o.id = e.offering_id
-JOIN courses AS c ON c.id = o.course_id
+SELECT c.title AS course_title, e.grade AS grade
+FROM students s
+JOIN enrollments e ON e.student_id = s.id
+JOIN offerings o ON o.id = e.offering_id
+JOIN courses c ON c.id = o.course_id
 WHERE s.name = 'Arta'
 ```
 
-Run id: `20261126-061005-228166`, trace: [traces/20261126-061005-228166.json](traces/20261126-061005-228166.json)
+Run id: `20261126-104401-35bbfd`, trace: [traces/20261126-104401-35bbfd.json](traces/20261126-104401-35bbfd.json)
 
 ## An unclear question
 
@@ -211,9 +211,9 @@ Question: How many students passed Databases in Fall 2025?
 
 Status: clarification
 
-Answer: What minimum grade counts as passing?
+Answer: What minimum grade should count as passing?
 
-Run id: `20261126-061008-05949d`, trace: [traces/20261126-061008-05949d.json](traces/20261126-061008-05949d.json)
+Run id: `20261126-104404-1e5f9a`, trace: [traces/20261126-104404-1e5f9a.json](traces/20261126-104404-1e5f9a.json)
 
 ## Nothing to average
 
@@ -236,7 +236,7 @@ WHERE c.title = 'Databases'
   AND o.semester = '2030-Fall';
 ```
 
-Run id: `20261126-061010-2a482a`, trace: [traces/20261126-061010-2a482a.json](traces/20261126-061010-2a482a.json)
+Run id: `20261126-104405-bff440`, trace: [traces/20261126-104405-bff440.json](traces/20261126-104405-bff440.json)
 
 ## A different database, same agent
 
@@ -251,10 +251,10 @@ Answer: The books currently on loan are Emma, Dune, and Dracula.
 SQL that ran:
 
 ```sql
-SELECT DISTINCT b.title AS book_title
-FROM books AS b
-JOIN loans AS l ON l.book_id = b.id
-WHERE l.returned_on IS NULL
+SELECT books.title AS book_title
+FROM loans
+JOIN books ON books.id = loans.book_id
+WHERE loans.returned_on IS NULL
 ```
 
-Run id: `20261126-061012-dd48e6`, trace: [traces/20261126-061012-dd48e6.json](traces/20261126-061012-dd48e6.json)
+Run id: `20261126-104408-849912`, trace: [traces/20261126-104408-849912.json](traces/20261126-104408-849912.json)

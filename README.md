@@ -78,6 +78,7 @@ load_schema -> generate_sql -+- question back ----------------> END  clarificati
 | The SQL fails: the database rejects it, the check refuses it, or it runs longer than 5 seconds | Sends the error and the failed SQL back for one corrected query | Whatever the corrected query leads to |
 | The SQL fails twice, the model returns neither SQL nor a question, or the answer step returns empty text | Stops; never a third SQL attempt. "The question could not be answered. Last error: ..." | `failed` |
 | The question is unclear (the answer depends on something neither the question nor the database states, such as a pass mark) | Asks back with 2 to 3 complete questions to pick from and runs no SQL. If the reply has both a question and SQL, the question wins and the SQL is dropped | `clarification` |
+| The question asks for something the database does not hold (email addresses when only names are stored) | Says what is not stored and what is, offers questions the existing columns can answer, and runs no SQL | `clarification` |
 | No rows | "Nothing matched." The answer step is not called | `empty` |
 | One value was expected, but the result is not one row with one column | For example "The question asks for a single value, but the query returned 5 rows." No retry; the model is not asked to pick | `mismatch` |
 | One row, every value NULL (an average over nothing) | "No value is available for average_grade." (names the columns) | `no_value` |
@@ -107,7 +108,7 @@ Every run writes one JSON file to `traces/<run id>.json` (git-ignored). The run 
 To open a trace of your own, use the last two commands in Quick start. The saved example traces can also be read on GitHub without a key or anything installed: [examples/README.md](examples/README.md) lists eleven runs, eight from a real model and three scripted with a fake model because a real model does not fail on demand. To print one locally:
 
 ```bash
-python -m agent.cli --trace 20261126-060948-2af9a3 --traces examples/traces
+python -m agent.cli --trace 20261126-104348-7ede58 --traces examples/traces
 ```
 
 This is part of that scripted retry run (fake model). Most of the header, the `load_schema` step and the last three steps are trimmed for length:
@@ -138,7 +139,7 @@ pytest
 
 The offline tests use a scripted fake model (`tests/fakes.py`) that replays fixed replies and records every message it was sent, so they need no key and no network. They cover the seed data, the read-only connection and SQL check, the graph's paths and result checks, the trace, the command line, key safety, the known-answer helpers with demonstrations of wrong runs being caught, the second database and the example generator. A clean run shows every test passing and the live tests skipped.
 
-The live tests are opt-in: seven questions put to a real model. Five are judged by the returned rows (compared field by field) and the answer text, not by the SQL text; two check how unclear questions are handled. They need the provider, model and key in `.env` and make real model calls:
+The live tests are opt-in: nine questions put to a real model. Six are judged by the returned rows (compared field by field) and the answer text, not by the SQL text, one of them checking that an average is rounded to two decimal places; three check asking back: an unclear question, a question whose conditions must survive into the choices, and a question about information the database does not hold. They need the provider, model and key in `.env` and make real model calls:
 
 ```bash
 RUN_LIVE=1 pytest tests/test_live.py
@@ -165,7 +166,7 @@ These are stated plainly because each one can give a wrong answer while every ch
 - Status `answered` means the query ran and an answer was worded from its rows. It does not mean the query matched what the person meant. The tests catch specific known mistakes on known data; they cannot prove that every question is translated correctly.
 - A filter on a value written differently from the data, for example a semester format that is not among the sample rows, can produce a count of zero that looks like a fact. The trace shows the filter that was used; nothing detects the mismatch automatically.
 - The final sentence is written by a model and can misstate the rows. The live tests check the sentence for every expected value on the known questions. For any other question, the trace is where you compare the rows with the sentence.
-- When the agent asks back, the suggested questions are written by the model and can introduce a premise the database does not contain. Asked for each teacher's email address, with no email column, a live run offered "…if the format is first.last@example.com?"; choosing it returns addresses built from that invented rule. The trace shows the SQL that built them.
+- When the agent asks back, the suggested questions are written by the model. The prompt tells it to offer concrete values only for a detail the person decides (a cutoff, a period) and never to supply facts the database lacks, and a live test checks this on one question: asked for each teacher's email address, with no email column, it must say the addresses are not stored and offer only what is. Before that rule, a live run offered "…if the format is first.last@example.com?" and choosing it returned addresses built from the invented rule. A prompt rule lowers that risk; it does not remove it, so read a suggested question before choosing it.
 - The start screen lists every model Ollama has installed, including ones that cannot chat (an embedding model, for example). Choosing one ends the first question with "Run stopped at generate_sql: …".
 - The schema reader fails on a database that has a table from a SQLite extension that is not loaded, or text that is not valid UTF-8. The run then ends as `error` at `load_schema`. This was found in a code review and not fixed.
 - Passing the live questions on one model says nothing certain about other models, other phrasings or repeated runs.

@@ -1,60 +1,42 @@
 {
-  "run_id": "20261126-060948-2af9a3",
-  "started_at": "2026-11-26T06:09:48.846690+00:00",
-  "question": "How many students are there?",
+  "run_id": "20261126-104348-6cb69f",
+  "started_at": "2026-11-26T10:43:48.926831+00:00",
+  "question": "What is the average grade in Databases in Fall 2025?",
   "database": "university.db",
-  "provider": "scripted",
-  "model": "fake",
+  "provider": "openai",
+  "model": "gpt-6-luna",
   "status": "answered",
-  "answer": "There are 8 students.",
+  "answer": "The average grade in Databases in Fall 2025 is 78.0.",
   "steps": [
     {
       "node": "load_schema",
-      "at": "2026-11-26T06:09:48.848349+00:00",
-      "duration_ms": 1,
+      "at": "2026-11-26T10:43:48.929810+00:00",
+      "duration_ms": 3,
       "output": {
         "schema": "CREATE TABLE teachers (\n    id   INTEGER PRIMARY KEY,\n    name TEXT NOT NULL\n)\n(1, 'Lira Hoxha')\n(2, 'Besnik Krasniqi')\n(3, 'Mira Berisha')\n\nCREATE TABLE students (\n    id   INTEGER PRIMARY KEY,\n    name TEXT NOT NULL\n)\n(1, 'Arta')\n(2, 'Blerim')\n(3, 'Dren')\n\nCREATE TABLE courses (\n    id    INTEGER PRIMARY KEY,\n    code  TEXT NOT NULL UNIQUE,\n    title TEXT NOT NULL\n)\n(1, 'CS101', 'Databases')\n(2, 'CS102', 'Algorithms')\n(3, 'MA101', 'Statistics')\n\nCREATE TABLE offerings (\n    id         INTEGER PRIMARY KEY,\n    course_id  INTEGER NOT NULL REFERENCES courses(id),\n    teacher_id INTEGER NOT NULL REFERENCES teachers(id),\n    semester   TEXT NOT NULL,\n    UNIQUE (course_id, teacher_id, semester)\n)\n(1, 1, 1, '2025-Fall')\n(2, 2, 2, '2025-Fall')\n(3, 3, 3, '2025-Fall')\n\nCREATE TABLE enrollments (\n    student_id  INTEGER NOT NULL REFERENCES students(id),\n    offering_id INTEGER NOT NULL REFERENCES offerings(id),\n    grade       REAL CHECK (grade BETWEEN 0 AND 100),\n    PRIMARY KEY (student_id, offering_id)\n)\n(1, 1, 95.0)\n(2, 1, 88.0)\n(3, 1, 82.0)"
       }
     },
     {
       "node": "generate_sql",
-      "at": "2026-11-26T06:09:48.848531+00:00",
-      "duration_ms": 0,
+      "at": "2026-11-26T10:43:51.504331+00:00",
+      "duration_ms": 2575,
       "output": {
-        "sql": "SELECT COUNT(*) AS n FROM student",
-        "expects_single_value": false,
+        "sql": "SELECT AVG(e.grade) AS average_grade\nFROM enrollments AS e\nJOIN offerings AS o ON o.id = e.offering_id\nJOIN courses AS c ON c.id = o.course_id\nWHERE c.title = 'Databases'\n  AND o.semester = '2025-Fall';",
+        "expects_single_value": true,
         "attempts": 1
       }
     },
     {
       "node": "execute_sql",
-      "at": "2026-11-26T06:09:48.848766+00:00",
-      "duration_ms": 0,
-      "output": {
-        "error": "no such table: student"
-      }
-    },
-    {
-      "node": "generate_sql",
-      "at": "2026-11-26T06:09:48.848894+00:00",
-      "duration_ms": 0,
-      "output": {
-        "sql": "SELECT COUNT(*) AS student_count FROM students",
-        "expects_single_value": true,
-        "attempts": 2
-      }
-    },
-    {
-      "node": "execute_sql",
-      "at": "2026-11-26T06:09:48.849108+00:00",
+      "at": "2026-11-26T10:43:51.504822+00:00",
       "duration_ms": 0,
       "output": {
         "columns": [
-          "student_count"
+          "average_grade"
         ],
         "rows": [
           [
-            8
+            78.0
           ]
         ],
         "truncated": false,
@@ -63,7 +45,7 @@
     },
     {
       "node": "check_result",
-      "at": "2026-11-26T06:09:48.849229+00:00",
+      "at": "2026-11-26T10:43:51.504975+00:00",
       "duration_ms": 0,
       "output": {
         "checked": true
@@ -71,10 +53,10 @@
     },
     {
       "node": "answer",
-      "at": "2026-11-26T06:09:48.849310+00:00",
-      "duration_ms": 0,
+      "at": "2026-11-26T10:43:52.552885+00:00",
+      "duration_ms": 1048,
       "output": {
-        "answer": "There are 8 students.",
+        "answer": "The average grade in Databases in Fall 2025 is 78.0.",
         "status": "answered"
       }
     }

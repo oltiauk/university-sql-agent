@@ -141,6 +141,11 @@ Five nodes: `load_schema`, `generate_sql`, `execute_sql`, `check_result`, `answe
   - Every choice keeps all conditions of the original question and fills in only the missing detail.
   - Do counting, averaging, minimum and maximum inside the SQL, and add no `LIMIT` the question did not ask for.
   - Give every output column a plain descriptive name.
+  Added by the owner after trying the web interface (2026-11-26):
+  - When a question asks for information the database does not hold (email addresses when only names are stored), the agent says what is not stored and what is, and offers only questions the existing columns can answer. It runs no SQL and never makes the information up. This uses the clarification exit; there is no new status.
+  - When the missing detail is one the person decides (a passing cutoff), each choice states one concrete value, so a picked choice is answered at once.
+  - A choice never supplies facts the database lacks.
+  - The answer rounds averages and other non-whole numbers to at most two decimal places unless the question asks for more.
 - **execute_sql**: guard, then run. A guard rejection and a database error are treated the same: both set `error` and count as a failed attempt.
 - **Retry**: exactly one. Two attempts in total, never a third.
 - **failed**: the answer is "The question could not be answered. Last error: <error>". No invented answer. Also used when the model returns neither SQL nor a question, or an empty answer.
@@ -258,17 +263,16 @@ Acceptance criteria:
 5. `docs/production.md` covers reliability, scalability, monitoring and tracing, security, deployment.
 6. The repository is published publicly, after the owner confirms.
 
-### M5: UI (optional, designed when reached)
+### M5: Web interface (built)
 
-Recorded now so it is not lost:
+Plan: `docs/superpowers/plans/2026-11-26-m5-web-interface.md`. Designs by the owner: `docs/design/sql-agent-ui.html` (chat and trace panel) and `docs/design/start-screen.html` (start screen).
 
-- A list of answers; clicking one shows its trace: steps, SQL, rows, failures and retries.
-- On opening: choose a provider. Enter the API key in a masked field. The key is held in memory for that session only and never written to disk. The prompt is skipped when the key is already set in the environment or was entered earlier in the session.
-- Ollama: when it is running, list the locally installed models and let the user pick one. No key.
-- A clarification shows its choices as clickable buttons, with a text input beside them. Both paths are tested.
-- The key-safety test is extended to the UI's logs.
-
-The UI's own technology is decided at the start of M5.
+- `python -m agent.server [--db FILE] [--traces DIR] [--examples FILE] [--port N]`: a local server on Python's standard library, bound to 127.0.0.1, serving one page and JSON endpoints (state, Ollama models, setup, ask, runs).
+- Every answer shown is a saved trace record from a real run; the trace panel draws that record's steps: SQL, rows, errors, retries. The last 20 saved runs for the database are listed on load.
+- Start screen: choose Claude, OpenAI or Ollama; name the model, or pick from the models Ollama has installed; type the key in a masked field. The key is kept in the server's memory until the app stops and never written to disk, a trace, a log, a response or browser storage. The screen is skipped when the environment already has provider, model and key.
+- A clarification shows its choices as buttons with a free-text box beside them. A clicked choice is asked as-is; typed words are joined to the original question. Nothing runs until the person answers; clicks on buttons drawn less than 400 ms ago, and the second click of a double-click, are ignored.
+- Refuses requests from other sites: Host header check, JSON-only POSTs, no framing, a 1 MB body cap, a 2,000-character question cap.
+- Tested: the server by automated tests, including that a typed key never comes back from any endpoint. The page by source-level checks and by hand in a browser; it has no automated browser tests.
 
 ## Known limits
 

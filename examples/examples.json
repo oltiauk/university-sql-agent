@@ -1,7 +1,7 @@
 {
   "scripted-retry": {
     "id": "scripted-retry",
-    "run_id": "20261126-060948-2af9a3",
+    "run_id": "20261126-104348-7ede58",
     "title": "A query that fails and is corrected",
     "database": "university.db",
     "command": "python examples/make_examples.py",
@@ -13,7 +13,7 @@
   },
   "scripted-failed": {
     "id": "scripted-failed",
-    "run_id": "20261126-060948-eab3d7",
+    "run_id": "20261126-104348-c91dc8",
     "title": "A query that fails twice",
     "database": "university.db",
     "command": "python examples/make_examples.py",
@@ -25,7 +25,7 @@
   },
   "scripted-mismatch": {
     "id": "scripted-mismatch",
-    "run_id": "20261126-060948-c6afbd",
+    "run_id": "20261126-104348-8829b0",
     "title": "One value asked for, five returned",
     "database": "university.db",
     "command": "python examples/make_examples.py",
@@ -37,31 +37,31 @@
   },
   "aggregate": {
     "id": "aggregate",
-    "run_id": "20261126-060948-699e3c",
+    "run_id": "20261126-104348-6cb69f",
     "title": "Aggregation",
     "database": "university.db",
     "command": "python -m agent.cli --db university.db \"What is the average grade in Databases in Fall 2025?\"",
     "question": "What is the average grade in Databases in Fall 2025?",
     "status": "answered",
     "answer": "The average grade in Databases in Fall 2025 is 78.0.",
-    "sql": "SELECT AVG(e.grade) AS average_grade\nFROM enrollments e\nJOIN offerings o ON o.id = e.offering_id\nJOIN courses c ON c.id = o.course_id\nWHERE c.title = 'Databases'\n  AND o.semester = '2025-Fall'",
+    "sql": "SELECT AVG(e.grade) AS average_grade\nFROM enrollments AS e\nJOIN offerings AS o ON o.id = e.offering_id\nJOIN courses AS c ON c.id = o.course_id\nWHERE c.title = 'Databases'\n  AND o.semester = '2025-Fall';",
     "scripted": false
   },
   "join-above-average": {
     "id": "join-above-average",
-    "run_id": "20261126-060954-6847bb",
+    "run_id": "20261126-104352-412509",
     "title": "Join across four tables, with a subquery",
     "database": "university.db",
     "command": "python -m agent.cli --db university.db \"Which students scored above the class average in Databases in Fall 2025?\"",
     "question": "Which students scored above the class average in Databases in Fall 2025?",
     "status": "answered",
     "answer": "Arta, Blerim, and Dren scored above the class average in Databases in Fall 2025.",
-    "sql": "SELECT s.name AS student_name\nFROM students AS s\nJOIN enrollments AS e ON e.student_id = s.id\nJOIN offerings AS o ON o.id = e.offering_id\nJOIN courses AS c ON c.id = o.course_id\nWHERE c.title = 'Databases'\n  AND o.semester = '2025-Fall'\n  AND e.grade > (\n      SELECT AVG(e2.grade)\n      FROM enrollments AS e2\n      JOIN offerings AS o2 ON o2.id = e2.offering_id\n      JOIN courses AS c2 ON c2.id = o2.course_id\n      WHERE c2.title = 'Databases'\n        AND o2.semester = '2025-Fall'\n  )",
+    "sql": "SELECT DISTINCT s.name AS student_name\nFROM students AS s\nJOIN enrollments AS e ON e.student_id = s.id\nJOIN offerings AS o ON o.id = e.offering_id\nJOIN courses AS c ON c.id = o.course_id\nWHERE c.title = 'Databases'\n  AND o.semester = '2025-Fall'\n  AND e.grade > (\n      SELECT AVG(e2.grade)\n      FROM enrollments AS e2\n      JOIN offerings AS o2 ON o2.id = e2.offering_id\n      JOIN courses AS c2 ON c2.id = o2.course_id\n      WHERE c2.title = 'Databases'\n        AND o2.semester = '2025-Fall'\n  );",
     "scripted": false
   },
   "filter-semester": {
     "id": "filter-semester",
-    "run_id": "20261126-060958-01b07e",
+    "run_id": "20261126-104356-b03a0e",
     "title": "Filter by semester",
     "database": "university.db",
     "command": "python -m agent.cli --db university.db \"How many enrolments are there in Spring 2026?\"",
@@ -73,43 +73,43 @@
   },
   "filter-teacher": {
     "id": "filter-teacher",
-    "run_id": "20261126-061001-1967aa",
+    "run_id": "20261126-104359-2f6d5f",
     "title": "Filter by teacher",
     "database": "university.db",
     "command": "python -m agent.cli --db university.db \"What is the average grade in the classes taught by Besnik Krasniqi?\"",
     "question": "What is the average grade in the classes taught by Besnik Krasniqi?",
     "status": "answered",
-    "answer": "The average grade in classes taught by Besnik Krasniqi is 91.33333333333333.",
-    "sql": "SELECT AVG(e.grade) AS average_grade\nFROM enrollments AS e\nJOIN offerings AS o ON e.offering_id = o.id\nJOIN teachers AS t ON o.teacher_id = t.id\nWHERE t.name = 'Besnik Krasniqi'",
+    "answer": "The average grade in classes taught by Besnik Krasniqi is 91.33.",
+    "sql": "SELECT AVG(e.grade) AS average_grade\nFROM teachers AS t\nJOIN offerings AS o ON o.teacher_id = t.id\nJOIN enrollments AS e ON e.offering_id = o.id\nWHERE t.name = 'Besnik Krasniqi';",
     "scripted": false
   },
   "filter-student": {
     "id": "filter-student",
-    "run_id": "20261126-061005-228166",
+    "run_id": "20261126-104401-35bbfd",
     "title": "Filter by student",
     "database": "university.db",
     "command": "python -m agent.cli --db university.db \"Which courses did Arta take, and what grade did she get in each?\"",
     "question": "Which courses did Arta take, and what grade did she get in each?",
     "status": "answered",
-    "answer": "Arta took CS101 Databases and got 95.0, CS102 Algorithms and got 98.0, and CS201 Machine Learning and got 99.0.",
-    "sql": "SELECT c.code AS course_code, c.title AS course_title, e.grade AS grade\nFROM students AS s\nJOIN enrollments AS e ON e.student_id = s.id\nJOIN offerings AS o ON o.id = e.offering_id\nJOIN courses AS c ON c.id = o.course_id\nWHERE s.name = 'Arta'",
+    "answer": "Arta took Databases and earned 95, Algorithms and earned 98, and Machine Learning and earned 99.",
+    "sql": "SELECT c.title AS course_title, e.grade AS grade\nFROM students s\nJOIN enrollments e ON e.student_id = s.id\nJOIN offerings o ON o.id = e.offering_id\nJOIN courses c ON c.id = o.course_id\nWHERE s.name = 'Arta'",
     "scripted": false
   },
   "clarification": {
     "id": "clarification",
-    "run_id": "20261126-061008-05949d",
+    "run_id": "20261126-104404-1e5f9a",
     "title": "An unclear question",
     "database": "university.db",
     "command": "python -m agent.cli --db university.db \"How many students passed Databases in Fall 2025?\"",
     "question": "How many students passed Databases in Fall 2025?",
     "status": "clarification",
-    "answer": "What minimum grade counts as passing?",
+    "answer": "What minimum grade should count as passing?",
     "sql": null,
     "scripted": false
   },
   "no-value": {
     "id": "no-value",
-    "run_id": "20261126-061010-2a482a",
+    "run_id": "20261126-104405-bff440",
     "title": "Nothing to average",
     "database": "university.db",
     "command": "python -m agent.cli --db university.db \"What is the average grade in Databases in Fall 2030?\"",
@@ -121,14 +121,14 @@
   },
   "library": {
     "id": "library",
-    "run_id": "20261126-061012-dd48e6",
+    "run_id": "20261126-104408-849912",
     "title": "A different database, same agent",
     "database": "library.db",
     "command": "python -m agent.cli --db library.db \"Which books are currently on loan?\"",
     "question": "Which books are currently on loan?",
     "status": "answered",
     "answer": "The books currently on loan are Emma, Dune, and Dracula.",
-    "sql": "SELECT DISTINCT b.title AS book_title\nFROM books AS b\nJOIN loans AS l ON l.book_id = b.id\nWHERE l.returned_on IS NULL",
+    "sql": "SELECT books.title AS book_title\nFROM loans\nJOIN books ON books.id = loans.book_id\nWHERE loans.returned_on IS NULL",
     "scripted": false
   }
 }
