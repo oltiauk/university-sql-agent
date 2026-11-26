@@ -236,7 +236,7 @@ def test_viewer_works_before_a_model_is_chosen(app):
 @pytest.mark.parametrize("name", ["nope", "sqlite_master", 'students"; DROP TABLE students; --', "students; DELETE FROM students", "STUDENTS ", ""])
 def test_only_real_table_names_are_accepted(app, name):
     status, _ = app.get("/api/table?name=" + urllib.parse.quote(name))
-    assert status in (400, 404)
+    assert status == (400 if name == "" else 404)
     assert app.get("/api/table?name=students")[1]["total"] == 8        # nothing was changed
 
 def test_a_missing_name_is_400_and_an_unknown_one_404(app):
@@ -278,3 +278,44 @@ def test_odd_table_names_and_views_and_the_row_cap(tmp_path, monkeypatch):
 def test_viewer_requests_obey_the_host_check(app):
     assert app.get("/api/tables", headers={"Host": "evil.example"})[0] == 403
     assert app.get("/api/table?name=students", headers={"Host": "evil.example"})[0] == 403
+
+
+@pytest.fixture
+def odd_app(tmp_path, monkeypatch):
+    for name in ("LLM_PROVIDER", "LLM_MODEL", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr("agent.server.BROWSE_SECONDS", 0.2)
+    path = tmp_path / "odd2.db"
+    with closing(sqlite3.connect(path)) as conn, conn:
+        conn.executescript("""
+            CREATE VIEW forever AS WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c) SELECT x FROM c;
+            CREATE TABLE normal (x INT); INSERT INTO normal VALUES (1);
+            CREATE TABLE bad (t TEXT); INSERT INTO bad VALUES (CAST(X'FFFE41' AS TEXT));
+            CREATE TABLE big (r REAL, t TEXT, b BLOB);
+            INSERT INTO big VALUES (1e999, printf('%.*c', 5000, 'x'), zeroblob(1000));
+        """)
+    server = make_server(str(path), traces=str(tmp_path / "traces"))
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+    thread.start()
+    try:
+        yield lambda p: (lambda s, b: (s, json.loads(b)))(*_request(server.server_address[1], "GET", p))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+def test_an_endless_view_is_cut_off(odd_app):
+    status, out = odd_app("/api/tables")
+    assert status == 200
+    assert {t["name"]: t["rows"] for t in out["tables"]}["forever"] is None
+    assert {t["name"]: t["rows"] for t in out["tables"]}["normal"] == 1
+    assert odd_app("/api/table?name=forever")[0] == 400
+
+def test_invalid_utf8_does_not_hide_a_table(odd_app):
+    status, out = odd_app("/api/table?name=bad")
+    assert status == 200 and out["rows"][0][0].endswith("A")
+
+def test_infinity_and_huge_values_are_made_safe(odd_app):
+    status, out = odd_app("/api/table?name=big")
+    inf, text, blob = out["rows"][0]
+    assert status == 200 and inf == "inf" and len(text) == 2001 and len(blob) < 300

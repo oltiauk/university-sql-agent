@@ -3,7 +3,9 @@ import json
 import logging
 import os
 import sqlite3
+import math
 import threading
+import time
 import urllib.parse
 import urllib.request
 from contextlib import closing
@@ -21,6 +23,8 @@ PROVIDERS = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "olla
 UI = Path(__file__).with_name("ui.html")
 MAX_BODY = 1_000_000
 MAX_QUESTION = 2000
+BROWSE_SECONDS = 5
+MAX_CELL = 2000
 MAX_BROWSE_ROWS = 1000   # ponytail: the viewer shows at most this many rows; page through or search if a table is ever larger
 log = logging.getLogger("agent.server")
 
@@ -39,6 +43,28 @@ def table_names(conn) -> dict:
     """{name: 'table' | 'view'} as sqlite_master lists them; the only names the viewer will put into SQL"""
     return dict(conn.execute("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') "
                              "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY rowid"))
+
+
+def limited(conn):
+    """the viewer's connection: bad UTF-8 is replaced, and a query running past BROWSE_SECONDS is interrupted"""
+    conn.text_factory = lambda b: b.decode("utf-8", "replace")
+    restart_deadline(conn)
+    return conn
+
+
+def restart_deadline(conn):
+    deadline = time.monotonic() + BROWSE_SECONDS
+    conn.set_progress_handler(lambda: time.monotonic() > deadline, 10_000)
+
+
+def cell(v):
+    if isinstance(v, float) and not math.isfinite(v):
+        return repr(v)
+    if isinstance(v, str) and len(v) > MAX_CELL:
+        return v[:MAX_CELL] + "…"
+    if isinstance(v, bytes):
+        return repr(v[:64]) + ("…" if len(v) > 64 else "")
+    return v
 
 
 def quoted(name: str) -> str:
@@ -142,8 +168,9 @@ def make_server(db: str, traces: str = "traces", examples: list[str] = (), port:
                 return 200, {"runs": runs[-20:]}   # ponytail: reads every trace file; index them if the folder gets large
             if (method, path) == ("GET", "/api/tables"):
                 tables = []
-                with closing(connect(db)) as conn:
+                with closing(limited(connect(db))) as conn:
                     for name, kind in table_names(conn).items():
+                        restart_deadline(conn)
                         try:
                             rows = conn.execute(f"SELECT COUNT(*) FROM {quoted(name)}").fetchone()[0]
                         except sqlite3.Error:
@@ -161,7 +188,7 @@ def make_server(db: str, traces: str = "traces", examples: list[str] = (), port:
         def _table(self, name):
             if not name:
                 return 400, {"error": "Missing name"}
-            with closing(connect(db)) as conn:
+            with closing(limited(connect(db))) as conn:
                 if name not in table_names(conn):   # only an exact name from sqlite_master reaches the SQL below
                     return 404, {"error": "No such table"}
                 try:
@@ -170,7 +197,7 @@ def make_server(db: str, traces: str = "traces", examples: list[str] = (), port:
                     rows = cur.fetchall()
                 except sqlite3.Error as e:
                     return 400, {"error": type(e).__name__}   # class name only, never the message
-            return 200, {"name": name, "columns": [d[0] for d in cur.description], "rows": rows,
+            return 200, {"name": name, "columns": [d[0] for d in cur.description], "rows": [[cell(v) for v in r] for r in rows],
                          "total": total, "truncated": total > MAX_BROWSE_ROWS}
 
         def _setup(self, body):
