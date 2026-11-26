@@ -3,7 +3,7 @@ from contextlib import closing
 
 import pytest
 
-from agent.graph import build_graph
+from agent.graph import build_graph, combine
 from tests.fakes import FakeModel
 
 ABOVE_AVG = """SELECT s.name FROM enrollments e
@@ -27,7 +27,7 @@ def test_happy_path(db_path):
     assert final["truncated"] is False
     assert final["answer"] == "Arta, Blerim and Dren."
     assert final["status"] == "answered"
-    assert "error" not in final
+    assert not final.get("error")
 
 def test_node_names(db_path):
     nodes = set(build_graph(FakeModel([]), db_path).get_graph().nodes)
@@ -46,15 +46,6 @@ def test_sql_and_rows_reach_the_answer_step(db_path):
     sent = text_of(model.calls[1])
     assert QUESTION in sent and ABOVE_AVG in sent
     assert "Arta" in sent and "Blerim" in sent and "Dren" in sent and "Era" not in sent
-
-@pytest.mark.parametrize("bad_sql", ["SELECT nope FROM students", "DELETE FROM students"])
-def test_failing_sql_ends_failed_without_answer_call(db_path, bad_sql):
-    model = FakeModel([{"sql": bad_sql}])
-    final = build_graph(model, db_path).invoke({"question": "q"})
-    assert final["status"] == "failed"
-    assert final["error"]
-    assert final["answer"].startswith("The question could not be answered.") and final["error"] in final["answer"]
-    assert len(model.calls) == 1          # the answer step was never called
 
 def test_truncated_result_is_flagged_to_the_answer_step(tmp_path):
     path = tmp_path / "many.db"
@@ -87,3 +78,62 @@ def test_long_values_are_cut_in_the_answer_prompt(tmp_path):
     final = build_graph(model, str(path)).invoke({"question": "q"})
     assert len(text_of(model.calls[1])) < 2000
     assert len(final["rows"][0][0]) == 10_000
+
+GOOD = "SELECT COUNT(*) AS n FROM students"
+BAD = "SELECT nope FROM students"
+
+def test_retry_then_success(db_path):
+    model = FakeModel([{"sql": BAD}, {"sql": GOOD}, "There are 8."])
+    final = build_graph(model, db_path).invoke({"question": "How many?"})
+    assert (final["status"], final["answer"], final["attempts"]) == ("answered", "There are 8.", 2)
+    assert not final.get("error")
+    retry_prompt = text_of(model.calls[1])
+    assert BAD in retry_prompt and "nope" in retry_prompt.split(BAD, 1)[1]   # previous SQL, then its error
+    assert "How many?" in retry_prompt and "CREATE TABLE" in retry_prompt
+
+def test_first_attempt_prompt_has_no_retry_text(db_path):
+    model = FakeModel([{"sql": GOOD}, "8"])
+    build_graph(model, db_path).invoke({"question": "How many?"})
+    assert "no such column" not in text_of(model.calls[0])
+
+def test_two_failures_end_failed(db_path):
+    model = FakeModel([{"sql": BAD}, {"sql": "SELECT nada FROM students"}])
+    final = build_graph(model, db_path).invoke({"question": "q"})
+    assert final["status"] == "failed" and final["attempts"] == 2
+    assert final["answer"] == "The question could not be answered. Last error: " + final["error"]
+    assert "nada" in final["error"]
+    assert len(model.calls) == 2                     # no third attempt, no answer call
+
+def test_guard_rejection_counts_as_attempt(db_path):
+    model = FakeModel([{"sql": BAD}, {"sql": "DELETE FROM students"}])
+    final = build_graph(model, db_path).invoke({"question": "q"})
+    assert final["status"] == "failed" and len(model.calls) == 2
+
+def test_unclear_question_asks_back(db_path):
+    choices = ["How many scored at least 50?", "How many scored at least 60?"]
+    model = FakeModel([{"clarification": "What counts as passing?", "choices": choices}])
+    final = build_graph(model, db_path).invoke({"question": "How many passed?"})
+    assert final["status"] == "clarification"
+    assert final["answer"] == final["clarification"] == "What counts as passing?"
+    assert final["choices"] == choices
+    assert "sql" not in final and "rows" not in final and len(model.calls) == 1   # no SQL ran
+
+def test_empty_reply_is_failed(db_path):
+    final = build_graph(FakeModel([{}]), db_path).invoke({"question": "q"})
+    assert final["status"] == "failed" and "neither SQL nor a question" in final["answer"]
+
+def test_reply_edge_cases(db_path):
+    both = FakeModel([{"sql": GOOD, "clarification": "What counts as passing?", "choices": ["a", "b"]}])
+    final = build_graph(both, db_path).invoke({"question": "q"})
+    assert final["status"] == "clarification" and final["answer"] == "What counts as passing?"
+    assert "sql" not in final and "rows" not in final and len(both.calls) == 1   # the SQL is dropped, nothing ran
+    bare = FakeModel([{"clarification": "Which one?"}])
+    final = build_graph(bare, db_path).invoke({"question": "q"})
+    assert (final["status"], final["choices"]) == ("clarification", [])
+
+def test_combine():
+    assert combine("How many passed?", "at least 60") == "How many passed? (at least 60)"
+
+def test_single_value_flag_is_kept(db_path):
+    model = FakeModel([{"sql": GOOD, "expects_single_value": True}, "8"])
+    assert build_graph(model, db_path).invoke({"question": "q"})["expects_single_value"] is True

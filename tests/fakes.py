@@ -17,7 +17,8 @@ class FakeModel:
         return reply
 
     def with_structured_output(self, schema):
-        return SimpleNamespace(invoke=lambda messages: schema(**self._next(messages)))
+        empty = {"sql": "", "expects_single_value": False, "clarification": "", "choices": []}
+        return SimpleNamespace(invoke=lambda messages: schema(**{**empty, **self._next(messages)}))
 
     def invoke(self, messages):
         return SimpleNamespace(text=self._next(messages))

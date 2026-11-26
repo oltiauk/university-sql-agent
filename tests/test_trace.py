@@ -21,7 +21,7 @@ def test_trace_records_the_full_path(db_path, tmp_path):
     for step in rec["steps"]:
         assert set(step) == {"node", "at", "duration_ms", "output"} and step["duration_ms"] >= 0
     assert "CREATE TABLE" in rec["steps"][0]["output"]["schema"]
-    assert rec["steps"][1]["output"] == {"sql": ABOVE_AVG}
+    assert rec["steps"][1]["output"] == {"sql": ABOVE_AVG, "expects_single_value": False, "attempts": 1}
     assert rec["steps"][2]["output"]["columns"] == ["name"]
     assert rec["steps"][3]["output"]["answer"] == "Arta, Blerim and Dren."
 
@@ -33,9 +33,9 @@ def test_trace_is_saved_and_loads_back(db_path, tmp_path):
     assert saved == json.loads(json.dumps(rec, default=repr))
 
 def test_failed_run_trace(db_path, tmp_path):
-    rec = traced(FakeModel([{"sql": "SELECT nope FROM students"}]), db_path, tmp_path, "q")
+    rec = traced(FakeModel([{"sql": "SELECT nope FROM students"}, {"sql": "SELECT nope FROM students"}]), db_path, tmp_path, "q")
     assert rec["status"] == "failed"
-    assert [s["node"] for s in rec["steps"]] == ["load_schema", "generate_sql", "execute_sql"]
+    assert [s["node"] for s in rec["steps"]] == ["load_schema", "generate_sql", "execute_sql", "generate_sql", "execute_sql"]
     assert "nope" in rec["steps"][2]["output"]["error"]
 
 def test_trace_saved_when_model_raises(db_path, tmp_path):
@@ -78,3 +78,15 @@ def test_trace_saved_on_keyboard_interrupt(db_path, tmp_path):
     assert rec["status"] == "error"
     assert rec["answer"] == "Run stopped at generate_sql: KeyboardInterrupt."
     assert (tmp_path / "traces" / f"{rec['run_id']}.json").exists()
+
+def test_retry_trace_shows_both_attempts(db_path, tmp_path):
+    rec = traced(FakeModel([{"sql": "SELECT nope FROM students"}, {"sql": "SELECT 1 AS one"}, "one"]), db_path, tmp_path, "q")
+    assert [s["node"] for s in rec["steps"]] == ["load_schema", "generate_sql", "execute_sql", "generate_sql", "execute_sql", "answer"]
+    assert "nope" in rec["steps"][2]["output"]["error"]
+    assert rec["steps"][3]["output"]["sql"] == "SELECT 1 AS one" and rec["status"] == "answered"
+
+def test_clarification_trace(db_path, tmp_path):
+    rec = traced(FakeModel([{"clarification": "Which one?", "choices": ["A?", "B?"]}]), db_path, tmp_path, "q")
+    assert rec["status"] == "clarification" and rec["answer"] == "Which one?"
+    assert [s["node"] for s in rec["steps"]] == ["load_schema", "generate_sql"]
+    assert rec["steps"][1]["output"]["choices"] == ["A?", "B?"]
