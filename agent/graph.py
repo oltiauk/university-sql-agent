@@ -66,9 +66,10 @@ def build_graph(model, db_path: str):
             with closing(connect(db_path)) as conn:
                 columns, rows, truncated = run_query(conn, state["sql"])
         except (ValueError, sqlite3.Error) as e:
+            msg = str(e) or type(e).__name__   # an empty message must not look like success
             if state["attempts"] >= 2:
-                return {"error": str(e), "status": "failed", "answer": FAILED + str(e)}
-            return {"error": str(e)}
+                return {"error": msg, "status": "failed", "answer": FAILED + msg}
+            return {"error": msg}
         return {"columns": columns, "rows": rows, "truncated": truncated, "error": ""}
 
     def check_result(state: State):
@@ -76,7 +77,8 @@ def build_graph(model, db_path: str):
         if not rows:
             return {"status": "empty", "answer": "Nothing matched."}
         if state.get("expects_single_value") and (len(rows) != 1 or len(columns) != 1):
-            what = (f"{len(rows)} rows" if len(rows) != 1 else f"{len(columns)} columns")
+            what = (("more than 100 rows" if state["truncated"] else f"{len(rows)} rows") if len(rows) != 1
+                    else f"{len(columns)} columns")
             return {"status": "mismatch",
                     "answer": f"The question asks for a single value, but the query returned {what}."}
         if len(rows) == 1 and all(v is None for v in rows[0]):
@@ -106,7 +108,7 @@ def build_graph(model, db_path: str):
     g.add_edge("load_schema", "generate_sql")
     g.add_conditional_edges("generate_sql", lambda s: END if s.get("status") else "execute_sql")
     g.add_conditional_edges("execute_sql", lambda s: (
-        ("generate_sql" if s["attempts"] < 2 else END) if s.get("error") else "check_result"))
+        END if s.get("status") else "generate_sql" if s.get("error") else "check_result"))
     g.add_conditional_edges("check_result", lambda s: END if s.get("status") else "answer")
     g.add_edge("answer", END)
     return g.compile()

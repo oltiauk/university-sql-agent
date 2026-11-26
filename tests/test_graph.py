@@ -190,3 +190,14 @@ def test_partly_null_row_is_answered(db_path):
 
 def test_check_result_node_exists(db_path):
     assert "check_result" in set(build_graph(FakeModel([]), db_path).get_graph().nodes)
+
+def test_truncated_single_value_message(tmp_path):
+    path = tmp_path / "many.db"
+    with closing(sqlite3.connect(path)) as rw:
+        rw.execute("CREATE TABLE n (i INT)")
+        rw.executemany("INSERT INTO n VALUES (?)", [(i,) for i in range(150)])
+        rw.commit()
+    model = FakeModel([{"sql": "SELECT i FROM n", "expects_single_value": True}])
+    final = build_graph(model, str(path)).invoke({"question": "one n"})
+    assert final["status"] == "mismatch"
+    assert final["answer"] == "The question asks for a single value, but the query returned more than 100 rows."

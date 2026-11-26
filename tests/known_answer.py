@@ -21,6 +21,8 @@ def check_rows(columns, rows, expected, names):
     return "rows do not match the expected values by field"
 
 
+# ponytail: negative signs, thousands separators and numbers of a million or more are not handled;
+# fine for this database's small whole counts and averages
 def _number(n):
     # own number: no digit (or "digit.") before, no digit after; ".0"/".00" allowed, ".5" is not
     return re.compile(r"(?<!\d)(?<!\d\.)" + re.escape(f"{n:g}") + r"(?:\.0+)?(?!\d)(?!\.\d)")
@@ -43,5 +45,5 @@ def check_answer(answer, must, must_not=()):
 
 def check_labelled(answer, labels):
     for label, n in labels.items():
-        if not re.search(re.escape(label.lower()) + r"[^a-zA-Z0-9]*" + _number(n).pattern, answer.lower()):
+        if not re.search(r"(?<![a-z0-9])" + re.escape(label.lower()) + r"[^a-zA-Z0-9]*" + _number(n).pattern, answer.lower()):
             return f"answer does not show {n} after '{label}'"

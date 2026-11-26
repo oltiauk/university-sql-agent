@@ -6,11 +6,8 @@ from agent.cli import main
 from tests.fakes import FakeModel
 
 
-def no_input(prompt):
-    raise EOFError
-
-def run(capsys, argv, model=None, ask=no_input):
-    code = main(argv, model=model, ask=ask)
+def run(capsys, argv, model=None, ask=None):
+    code = main(argv, model=model, ask=ask or answers())
     out = capsys.readouterr()
     return code, out.out, out.err
 
@@ -121,7 +118,26 @@ def test_repeated_clarification(db_path, tmp_path, capsys):
 @pytest.mark.parametrize("reply,code_expected", [
     ({"sql": "SELECT name FROM students WHERE name = 'Zed'"}, 0),               # empty
     ({"sql": "SELECT name FROM students", "expects_single_value": True}, 1),    # mismatch
+    ({"sql": "SELECT NULL AS x", "expects_single_value": True}, 0),             # no value
 ])
 def test_exit_codes(db_path, tmp_path, capsys, reply, code_expected):
     code, _, _ = run(capsys, ["q", "--db", db_path, "--traces", str(tmp_path)], FakeModel([reply]))
     assert code == code_expected
+
+@pytest.mark.parametrize("replies", [
+    [{"sql": "SELECT nope FROM students"}, {"sql": "SELECT nope2 FROM students"}],   # failed twice
+    [RuntimeError("x")],                                                             # model raises
+])
+def test_exit_code_one_on_failure(db_path, tmp_path, capsys, replies):
+    code, _, _ = run(capsys, ["q", "--db", db_path, "--traces", str(tmp_path)], FakeModel(replies))
+    assert code == 1
+
+def test_follow_up_odd_numbers(db_path, tmp_path, capsys):
+    args = ["How many passed?", "--db", db_path, "--traces", str(tmp_path)]
+    for reply in ("\u00b2", "9" * 5000, "02"):
+        model = FakeModel([CLARIFY, {"sql": COUNT}, "8"])
+        run(capsys, args, model, ask=answers(reply))
+        assert "Question: How many passed? (" in model.calls[1][1][1]
+    model = FakeModel([CLARIFY, {"sql": COUNT}, "8"])
+    run(capsys, args, model, ask=answers(" 2 "))
+    assert "Question: How many scored at least 60?" in model.calls[1][1][1]

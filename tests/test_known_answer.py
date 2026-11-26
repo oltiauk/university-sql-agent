@@ -45,6 +45,7 @@ def test_check_labelled():
     assert check_labelled("Grade: 95. Class average: 78.0.", labels) is None
     assert check_labelled("**Grade:** 95\n**Class average:** 78", labels) is None
     assert check_labelled("Grade: 78. Class average: 95.", labels) == "answer does not show 95 after 'grade'"
+    assert check_labelled("Upgrade: 95. Class average: 78.", labels) is not None
     assert check_labelled("Arta got 95 and the average was 78.", labels) is not None
 
 # Demonstrations: a scripted wrong run, and the check that catches it.
@@ -70,3 +71,10 @@ def test_swapped_answer_is_caught(db_path, tmp_path):
     out = rec["steps"][2]["output"]
     assert check_rows(out["columns"], out["rows"], [{"grade": 95, "average": 78.0}], GA) is None
     assert check_labelled(rec["answer"], {"grade": 95, "class average": 78}) == "answer does not show 95 after 'grade'"
+
+def test_live_helper_uses_the_last_successful_execute(db_path, tmp_path):
+    from tests.test_live import rows_problem   # here, as test_live imports N and EXPECTED from this module
+    ok = traced(FakeModel([{"sql": "SELECT nope FROM students"}, {"sql": ABOVE_AVG}, "Arta, Blerim and Dren."]), db_path, tmp_path)
+    assert rows_problem(ok, EXPECTED, N) is None
+    bad = traced(FakeModel([{"sql": "SELECT nope FROM students"}, {"sql": "SELECT nope FROM students"}]), db_path, tmp_path)
+    assert rows_problem(bad, EXPECTED, N) == "no successful execute_sql step"

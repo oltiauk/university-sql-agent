@@ -9,11 +9,9 @@ from langchain.chat_models import init_chat_model
 from agent.graph import build_graph
 from agent.trace import format_trace, run_traced
 from tests.known_answer import check_answer, check_labelled, check_rows
+from tests.test_known_answer import EXPECTED, GA, N
 
 pytestmark = pytest.mark.skipif(os.environ.get("RUN_LIVE") != "1", reason="live tests run only with RUN_LIVE=1")
-N = {"student": ("name", "student")}
-GA = {"grade": ("grade",), "average": ("avg", "average", "mean")}
-EXPECTED = [{"student": "Arta"}, {"student": "Blerim"}, {"student": "Dren"}]
 
 
 def run(question, db_path, tmp_path):
@@ -24,46 +22,46 @@ def run(question, db_path, tmp_path):
 
 
 def rows_problem(rec, expected, names):
-    out = next((s["output"] for s in rec["steps"] if s["node"] == "execute_sql"), None)
-    return check_rows(out["columns"], out["rows"], expected, names) if out else "no execute_sql step"
+    out = next((s["output"] for s in reversed(rec["steps"]) if s["node"] == "execute_sql" and "rows" in s["output"]), None)
+    return check_rows(out["columns"], out["rows"], expected, names) if out else "no successful execute_sql step"
 
 
-def verify(rec, *problems):
-    problem = next((p for p in problems if p), None)
+def verify(rec, status, *problems):
+    problem = next((p for p in (None if rec["status"] == status else f"status {rec['status']}", *problems) if p), None)
     assert problem is None, f"{problem}\n{format_trace(rec)}"
 
 
 def test_above_class_average(db_path, tmp_path):
     rec = run("Which students scored above the class average in Databases in Fall 2025?", db_path, tmp_path)
-    verify(rec, None if rec["status"] == "answered" else f"status {rec['status']}", rows_problem(rec, EXPECTED, N),
+    verify(rec, "answered", rows_problem(rec, EXPECTED, N),
            check_answer(rec["answer"], ["Arta", "Blerim", "Dren"], ["Era", "Fatos"]))
 
 
 def test_grade_and_class_average(db_path, tmp_path):
     rec = run("What is Arta's grade in Databases in Fall 2025, and what is the class average? "
               "Answer with two labels: grade and class average.", db_path, tmp_path)
-    verify(rec, None if rec["status"] == "answered" else f"status {rec['status']}",
+    verify(rec, "answered",
            rows_problem(rec, [{"grade": 95, "average": 78.0}], GA),
            check_labelled(rec["answer"], {"grade": 95, "class average": 78}))
 
 
 def test_who_teaches(db_path, tmp_path):
     rec = run("Who teaches Databases in Fall 2025?", db_path, tmp_path)
-    verify(rec, None if rec["status"] == "answered" else f"status {rec['status']}",
+    verify(rec, "answered",
            rows_problem(rec, [{"teacher": "Lira Hoxha"}], {"teacher": ("name", "teacher")}),
            check_answer(rec["answer"], ["Lira Hoxha"]))
 
 
 def test_distinct_people(db_path, tmp_path):
     rec = run("How many different students does Besnik Krasniqi teach?", db_path, tmp_path)
-    verify(rec, None if rec["status"] == "answered" else f"status {rec['status']}",
+    verify(rec, "answered",
            rows_problem(rec, [{"value": 5}], {"value": ("",)}), check_answer(rec["answer"], [5]))
 
 
 def test_passed_asks_back(db_path, tmp_path):
     rec = run("How many students passed Databases in Fall 2025?", db_path, tmp_path)
     choices = rec["steps"][-1]["output"].get("choices", [])
-    verify(rec, None if rec["status"] == "clarification" else f"status {rec['status']}",
+    verify(rec, "clarification",
            None if 2 <= len(choices) <= 3 else f"{len(choices)} choices",
            "execute_sql ran" if any(s["node"] == "execute_sql" for s in rec["steps"]) else None)
 
@@ -72,7 +70,7 @@ def test_choices_keep_conditions(db_path, tmp_path):
     rec = run("Who scored at least 90 in Databases?", db_path, tmp_path)
     if rec["status"] == "clarification":
         choices = rec["steps"][-1]["output"].get("choices", [])
-        verify(rec, None if choices and all("90" in c for c in choices) else f"a choice lost the 90: {choices}")
+        verify(rec, "clarification", None if choices and all("90" in c for c in choices) else f"a choice lost the 90: {choices}")
     else:
-        verify(rec, None if rec["status"] == "answered" else f"status {rec['status']}",
+        verify(rec, "answered",
                rows_problem(rec, [{"student": "Arta"}, {"student": "Gent"}, {"student": "Hana"}], N))

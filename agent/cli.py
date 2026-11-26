@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None, model=None, ask=input) -> int:
         record = run_traced(graph, question, database=args.db,
                             provider=provider, model=model_name, traces_dir=args.traces)
         print(record["answer"])
-        choices = record["steps"][-1]["output"].get("choices", []) if record["status"] == "clarification" else []
+        choices = (record["steps"] or [{"output": {}}])[-1]["output"].get("choices", [])
         for i, choice in enumerate(choices, 1):
             print(f"{i}. {choice}")
         print()
@@ -70,8 +70,8 @@ def main(argv: list[str] | None = None, model=None, ask=input) -> int:
             break
         if not reply:
             break
-        question = choices[int(reply) - 1] if reply.isdigit() and 1 <= int(reply) <= len(choices) \
-            else combine(args.question, reply)
+        picked = {str(i): c for i, c in enumerate(choices, 1)}.get(reply)   # reply is already stripped
+        question = picked if picked is not None else combine(args.question, reply)
     return 1 if record["status"] in ("failed", "mismatch", "error") else 0
 
 
