@@ -74,3 +74,10 @@ def test_choices_keep_conditions(db_path, tmp_path):
     else:
         verify(rec, "answered",
                rows_problem(rec, [{"student": "Arta"}, {"student": "Gent"}, {"student": "Hana"}], N))
+
+
+def test_library_on_loan(library_path, tmp_path):
+    rec = run("Which books are currently on loan?", library_path, tmp_path)
+    verify(rec, "answered",
+           rows_problem(rec, [{"book": "Dracula"}, {"book": "Dune"}, {"book": "Emma"}], {"book": ("title", "book")}),
+           check_answer(rec["answer"], ["Dracula", "Dune", "Emma"], ["Ulysses", "Beloved", "Walden"]))
