@@ -57,7 +57,9 @@ If `.env` names a provider, a model and (for OpenAI or Anthropic) a key, the pag
 
 A typed key is sent once to the local server and kept in its memory until you stop it. It is not written to `.env`, a trace or the browser's storage. Click the model name under the question box to reopen setup with the active model selected.
 
-Every answer on the page is a saved run, and its trace panel shows that run's trace file. On opening, the page shows the last 20 runs for the database. A question back shows its choices as buttons: clicking one asks it as a new question, and typed words are added to the original in brackets, as in the command line.
+Every answer on the page is a saved run, and its trace panel shows that run's trace file. On opening, the page shows the runs of the current chat, up to the last 20. A question back shows its choices as buttons: clicking one asks it as a new question, and typed words are added to the original in brackets, as in the command line.
+
+Each chat has an id, kept in the page address after `#chat=`. Refreshing the page keeps the chat; opening the plain address, or clicking **New chat** beside the title, starts an empty one. With each question the server gives the model the last three turns of the current chat: what was asked, the SQL that ran (if any) and what was answered, including a question back and the reply to it; a run that stopped with an error is left out. So a follow-up such as "which ones?" is read in context, while a question that is complete on its own is answered on its own. The trace panel shows the question as the agent understood it and which earlier turns it was given. The command line has no memory: one question per run.
 
 Clicking the database name under the question box opens a list of its tables and views; picking one shows its rows, up to 1,000. The viewer is for the person using the page: it reads the file read-only and does not change what the model is given, which is still the table definitions and three sample rows of each.
 
@@ -77,7 +79,7 @@ load_schema -> generate_sql -+- question back ----------------> END  clarificati
 ```
 
 - **load_schema** reads every table and view: its `CREATE` statement and its first 3 rows. This text is all the agent knows about the database.
-- **generate_sql** makes one model call with the schema and the question. The reply has a fixed structure (structured output): one SQL query plus a flag `expects_single_value` (true when the question asks for exactly one value, such as one count), or a question back with 2 to 3 suggested questions. A retry also carries the previous SQL and its error.
+- **generate_sql** makes one model call with the schema and the question. The reply has a fixed structure (structured output): one SQL query plus a flag `expects_single_value` (true when the question asks for exactly one value, such as one count), or a question back with 2 to 3 suggested questions. A retry also carries the previous SQL and its error. The reply also restates the question so it stands on its own (the question as understood), and the answer step is given both the question as asked and, when it differs, as understood.
 - **execute_sql** checks the SQL and runs it. A rejected query and a database error both count as a failed attempt.
 - **check_result** looks at the rows in plain code and ends the run with a fixed message when they cannot support an answer. Otherwise it records `checked: True`, so the trace shows the check ran.
 - **answer** makes one model call with the question, SQL, columns and rows, asking for one or two sentences that use only those rows.
@@ -114,7 +116,7 @@ Comments written inside a `CREATE TABLE` statement travel with the schema text, 
 
 ## Tracing
 
-Every run writes one JSON file to `traces/<run id>.json` (git-ignored). The run id is the start time in UTC plus six random hex characters. A trace holds the question, database path, provider and model name, final status and answer, and one entry per node in the order it ran, with its duration and what it added to the state: the schema text, the SQL, the error, the columns and rows, the clarification and choices, the answer. “Result shape checked” means the result passed the row and column checks that apply to that question. A query can still average the wrong group and return the expected number of values.
+Every run writes one JSON file to `traces/<run id>.json` (git-ignored). The run id is the start time in UTC plus six random hex characters. A trace holds the question, database path, provider and model name, final status and answer, the chat id (none for the command line), the earlier turns of the chat the model was given, the question as the agent understood it, and one entry per node in the order it ran, with its duration and what it added to the state: the schema text, the SQL, the error, the columns and rows, the clarification and choices, the answer. “Result shape checked” means the result passed the row and column checks that apply to that question. A query can still average the wrong group and return the expected number of values.
 
 The provider can read its API key from the environment. If you enter a key in the web UI, the local server passes it to the model client in memory. The graph receives the configured model. Its state and saved traces exclude the credential.
 
@@ -152,7 +154,7 @@ pytest
 
 The offline tests use a scripted fake model (`tests/fakes.py`) that replays fixed replies and records every message it was sent, so they need no key and no network. They cover the seed data, the read-only connection and SQL check, the graph's paths and result checks, the trace, the command line, key safety, the known-answer helpers with demonstrations of wrong runs being caught, the second database and the example generator. A clean run shows every test passing and the live tests skipped.
 
-The live tests are opt-in: eleven questions put to a real model. Eight are judged by the returned rows (compared field by field) or the answer text, not by the SQL text; three of those check how numbers are shown (a long decimal rounded to two places while the trace keeps the full value, a requested precision used, a short decimal left alone). Three check asking back: an unclear question, a question whose conditions must survive into the choices, and a question about information the database does not hold. They need the provider, model and key in `.env` and make real model calls:
+The live tests are opt-in: fifteen tests that put questions to a real model. Eight are judged by the returned rows (compared field by field) or the answer text, not by the SQL text; three of those check how numbers are shown (a long decimal rounded to two places while the trace keeps the full value, a requested precision used, a short decimal left alone). Three check asking back: an unclear question, a question whose conditions must survive into the choices, and a question about information the database does not hold. Four play short conversations: the owner's flow (asked how many passed, replied "more than 70" to the question back, then "which ones?"), a follow-up that changes one detail, a complete question that must ignore the earlier turns, and a new chat that must have forgotten the cutoff. They need the provider, model and key in `.env` and make real model calls:
 
 ```bash
 RUN_LIVE=1 pytest tests/test_live.py
@@ -186,7 +188,8 @@ These are stated plainly because each one can give a wrong answer while every ch
 - Text stored in the database is sent to the model, in the sample rows and in the result rows. A database containing hostile text could steer the model. Read-only access protects the data, not the truth of the answer. This is not defended against here; see [docs/production.md](docs/production.md).
 - One query per question: a question that needs the result of one query to write the next is answered only if it fits in a single statement with subqueries.
 - The SQL check rejects any `;` inside the query, even inside a quoted string.
-- SQLite only, and no memory between questions.
+- SQLite only.
+- In the web interface the last three turns of the current chat are given as context, and the model decides whether a question is a follow-up. It can get that wrong in either direction: read a complete question as a follow-up, or miss one. The trace shows what it understood. The command line has no memory.
 - The web interface is for one person on one computer: there is no login, and the chosen model is shared by every page open on the server. An answer appears only when its run has finished. The page itself has no automated browser tests; the tests check the server and the text of the page.
 
 ## Layout

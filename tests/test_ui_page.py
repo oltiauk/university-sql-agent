@@ -35,3 +35,9 @@ def test_key_is_not_stored_by_the_page():
 def test_database_viewer_is_in_the_page():
     for needed in ("/api/tables", "/api/table?name=", 'data-act="db"', "encodeURIComponent", "Browse the database"):
         assert needed in PAGE
+
+
+def test_current_chat_is_in_the_page():
+    for needed in ("/api/runs?chat=", "#chat=", "replaceState", "getRandomValues", "New chat", "Understood as:", "renderDb",
+                   "body.chat = state.chat"):
+        assert needed in PAGE

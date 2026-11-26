@@ -24,7 +24,7 @@ It is a homework submission followed by an interview: the owner must present it,
 - More than one SQL query per question.
 - A model that checks the first model's SQL (may be added later if tests show a pattern).
 - Pausing and resuming a run.
-- Remembering earlier questions in a conversation. Each question is its own run.
+- Memory in the command line: it remembers nothing, one question per run. The web interface gives the model the last three turns of the current chat (added by the owner on 2026-11-26).
 - Databases other than SQLite.
 - LangSmith. **(call)** Tracing is our own.
 
@@ -273,6 +273,9 @@ Plan: `docs/superpowers/plans/2026-11-26-m5-web-interface.md`. Designs by the ow
 - Every answer shown is a saved trace record from a real run; the trace panel draws that record's steps: SQL, rows, errors, retries. The last 20 saved runs for the database are listed on load.
 - On the start screen, choose Claude, OpenAI or Ollama. For a hosted provider, the model picker starts with the active model, the configured model for that provider, or the first UI preset, in that order. It also accepts a custom model name. Ollama lists its installed models. If a key is needed, enter it in the masked field. The key is kept in the server's memory until the app stops and never written to disk, a trace, a log, a response or browser storage. The screen is skipped when the environment already has provider, model and key.
 - A clarification shows its choices as buttons with a free-text box beside them. A clicked choice is asked as-is; typed words are joined to the original question. Nothing runs until the person answers; clicks on buttons drawn less than 400 ms ago, and the second click of a double-click, are ignored.
+- The database viewer: click the database name to see its tables and views with row counts, and up to 1,000 rows of the picked one. Read-only, a 5-second limit, and it does not change what the model is given.
+- The current chat: its id is kept in the page address, so a refresh keeps the same chat. With each question the server builds the last three turns of that chat from its saved runs and gives them to the model as context. "New chat" starts an empty one.
+- The trace panel shows the question as the agent understood it, under the question as asked.
 - Refuses requests from other sites: Host header check, JSON-only POSTs, no framing, a 1 MB body cap, a 2,000-character question cap.
 - Tested: the server by automated tests, including that a typed key never comes back from any endpoint. The page by source-level checks and by hand in a browser; it has no automated browser tests.
 

@@ -79,6 +79,10 @@ summary{cursor:pointer}
 details pre{margin-top:8px}
 @media (min-width:1000px){.trace{position:sticky;top:28px;max-height:calc(100vh - 56px);overflow-y:auto}}
 button.tag{border:0;line-height:inherit}
+.chat-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.chat-head .pill{margin:-3px 0}
+.past{margin-top:8px;padding-left:20px}
+.past li+li{margin-top:6px}
 /* start screen, from docs/design/start-screen.html; body gets .start-view while it shows, so no chat rule changes */
 .start-view{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px 16px}
 .start-view .page{width:100%}
@@ -126,10 +130,19 @@ var LABELS = { load_schema: 'Read the tables', generate_sql: 'Write the SQL', ex
 var NAMES = { anthropic: 'Claude', openai: 'OpenAI', ollama: 'Ollama' };
 var modelPresets = JSON.parse(document.getElementById('model-presets').textContent);
 
+// chat: this chat's id, kept in the address after #chat= so a refresh keeps the chat
 // info: /api/state; turns: [{ record, bubble, error, from }]; sel: index of the turn whose trace is open
 // setup: the start screen while it shows, else null: { p: provider id, ollama: null while asking, pick, busy }
 // db: the database viewer while it shows (in place of the trace), else null: { tables, pick, data, err }
-var state = { info: null, turns: [], sel: null, busy: false, setup: null, draft: '', db: null };
+var state = { info: null, turns: [], sel: null, busy: false, setup: null, draft: '', db: null, chat: null };
+
+function newChat() {
+  var id = Array.from(crypto.getRandomValues(new Uint8Array(6)), function (b) { return (b + 256).toString(16).slice(1); }).join('');
+  state.chat = id;
+  history.replaceState(null, '', '#chat=' + id);   // no navigation, no scroll
+}
+var hashChat = /^#chat=([0-9a-f]{12})$/.exec(location.hash);
+if (hashChat) state.chat = hashChat[1]; else newChat();
 
 function esc(v) {
   return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -246,11 +259,26 @@ function stepView(s, i, rec) {
   return { label: label, dot: '', html: '' };
 }
 
+// the earlier turns of the chat the model was given with this question; older records have none
+function pastHtml(past) {
+  if (!past.length) return '';
+  var h = '<p class="small">Used the last ' + past.length + (past.length === 1 ? ' turn' : ' turns') + ' of this chat</p>' +
+    '<details><summary class="meta">Show them</summary><ol class="past">';
+  past.forEach(function (t) {
+    h += '<li><p class="trace-q">' + esc(own(t, 'question') == null ? '' : t.question) + '</p>' +
+      '<p class="meta">' + esc(own(t, 'answer') == null ? '' : t.answer) + '</p></li>';
+  });
+  return h + '</ol></details>';
+}
+
 function traceHtml(rec) {
   var head = ['run ' + rec.run_id, rec.database, rec.provider, rec.model, rec.status].map(esc).join(' · ');
   var h = '<aside class="card trace" aria-label="Trace"><div class="trace-head"><div>' +
     '<h2 class="title">Trace</h2>' +
     '<p class="trace-q">' + esc(rec.question) + '</p>' +
+    (typeof rec.understood === 'string' && rec.understood !== rec.question
+      ? '<p class="trace-q"><span class="small">Understood as:</span> ' + esc(rec.understood) + '</p>' : '') +
+    pastHtml(arr(rec.history)) +
     '<p class="mono small">' + head + '</p></div>' +
     '<button type="button" class="round close" data-act="close" aria-label="Close trace">' + ICON_CLOSE + '</button></div>';
   h += '<ol class="steps">';
@@ -293,26 +321,27 @@ function openDb() {
   render();
   send('/api/tables').then(function (r) {
     if (state.db !== v) return;   // closed meanwhile
-    if (!r.ok) { v.err = r.data.error; return render(); }
+    if (!r.ok) { v.err = r.data.error; return renderDb(); }
     v.tables = arr(r.data.tables);
-    if (v.tables.length) pickTable(0); else render();
+    if (v.tables.length) pickTable(0); else renderDb();
   });
 }
 
 function pickTable(n) {
   var v = state.db;
   v.pick = n; v.data = null; v.err = null;
-  render();
+  renderDb();
   send('/api/table?name=' + encodeURIComponent(v.tables[n].name)).then(function (r) {
     if (state.db !== v || v.pick !== n) return;   // another table was picked, or the viewer closed, meanwhile
     if (r.ok) v.data = r.data; else v.err = r.data.error;
-    render();
+    renderDb();
   });
 }
 
 function chatHtml() {
   var info = state.info;
-  var h = '<main class="card chat"><h1 class="title">Ask the database</h1>';
+  var h = '<main class="card chat"><div class="chat-head"><h1 class="title">Ask the database</h1>' +
+    '<button type="button" class="pill trace-btn" data-act="new"' + dis() + '>New chat</button></div>';
   if (state.turns.length) h += '<div class="thread">' + state.turns.map(turnHtml).join('') + '</div>';
   h += '<div class="bottom">';
   var examples = arr(info.examples);
@@ -428,7 +457,8 @@ function start() {
 var app = document.getElementById('app');
 var drawnAt = 0;   // when the page was last redrawn: a click soon after may have been meant for what was there before
 
-function render(scrollTo) {
+// jump: scroll without the smooth animation, so a click right after a page load lands where it was aimed
+function render(scrollTo, jump) {
   drawnAt = performance.now();
   document.body.classList.toggle('start-view', !!state.setup);
   if (state.setup) {
@@ -443,8 +473,14 @@ function render(scrollTo) {
   document.getElementById('q').value = typed;
   if (scrollTo != null) {
     var el = app.querySelector('[data-turn="' + scrollTo + '"]');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (el) el.scrollIntoView({ behavior: jump ? 'auto' : 'smooth', block: 'center' });
   }
+}
+
+// redraws only the database viewer: the question box, a typed answer and the click guard are left as they are
+function renderDb() {
+  var el = app.querySelector('aside');
+  if (!state.setup && el) el.outerHTML = dbHtml();
 }
 
 // GET when body is undefined, else POST it as JSON; resolves to { ok, data }, data.error set when not ok
@@ -460,12 +496,12 @@ function load() {
   return send('/api/state').then(function (r) {
     if (!r.ok) throw r;
     state.info = r.data;
-    return send('/api/runs');
+    return send('/api/runs?chat=' + state.chat);
   }).then(function (r) {
     state.turns = arr(r.data.runs).map(function (r) { return { record: r, bubble: r.question }; });
     state.sel = state.turns.length ? state.turns.length - 1 : null;
     state.db = null;
-    if (state.info.ready) render(state.sel); else openSetup(defaultProvider());
+    if (state.info.ready) render(state.sel, true); else openSetup(defaultProvider());
   }).catch(function () {
     app.innerHTML = '<main class="card chat"><p>Could not reach the app</p></main>';
   });
@@ -480,6 +516,7 @@ function ask(body, bubble, from, typed) {
   var i = state.turns.length - 1;
   state.busy = true;
   render(i);
+  body.chat = state.chat;
   send('/api/ask', body).then(function (r) {
     if (r.ok) { t.record = r.data; if (!state.db) state.sel = i; } else { t.error = r.data.error; }   // an open viewer stays open
     state.busy = false;
@@ -512,6 +549,13 @@ app.addEventListener('click', function (ev) {
   } else if (act === 'setup') {
     state.draft = document.getElementById('q').value;
     openSetup(defaultProvider());
+  } else if (act === 'new') {
+    newChat();
+    state.turns = [];
+    state.sel = null;
+    state.db = null;
+    render();
+    document.getElementById('q').focus();
   } else if (act === 'db') {
     if (state.db) { state.db = null; render(); } else openDb();
   } else if (act === 'table') {
