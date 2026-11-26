@@ -7,11 +7,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 
-from agent.graph import build_graph
+from agent.graph import build_graph, combine
 from agent.trace import format_trace, load_trace, run_traced
 
 
-def main(argv: list[str] | None = None, model=None) -> int:
+def main(argv: list[str] | None = None, model=None, ask=input) -> int:
     parser = argparse.ArgumentParser(prog="python -m agent.cli")
     parser.add_argument("question", nargs="?")
     parser.add_argument("--db", default="university.db")
@@ -51,12 +51,28 @@ def main(argv: list[str] | None = None, model=None) -> int:
     else:
         provider = model_name = "injected"
 
-    record = run_traced(build_graph(model, args.db), args.question, database=args.db,
-                        provider=provider, model=model_name, traces_dir=args.traces)
-    print(record["answer"])
-    print()
-    print(f"run: {record['run_id']}")
-    return 0 if record["status"] == "answered" else 1
+    graph = build_graph(model, args.db)
+    question = args.question
+    while True:
+        record = run_traced(graph, question, database=args.db,
+                            provider=provider, model=model_name, traces_dir=args.traces)
+        print(record["answer"])
+        choices = record["steps"][-1]["output"].get("choices", []) if record["status"] == "clarification" else []
+        for i, choice in enumerate(choices, 1):
+            print(f"{i}. {choice}")
+        print()
+        print(f"run: {record['run_id']}")
+        if record["status"] != "clarification":
+            break
+        try:
+            reply = ask("Pick a number or type your answer (Enter to stop): ").strip()
+        except EOFError:
+            break
+        if not reply:
+            break
+        question = choices[int(reply) - 1] if reply.isdigit() and 1 <= int(reply) <= len(choices) \
+            else combine(args.question, reply)
+    return 1 if record["status"] in ("failed", "mismatch", "error") else 0
 
 
 if __name__ == "__main__":
