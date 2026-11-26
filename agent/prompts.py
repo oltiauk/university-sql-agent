@@ -18,6 +18,7 @@ Always set understood_question to the question restated so it stands on its own.
 If a previous query and its error are given, write a corrected query."""
 
 ANSWER_SYSTEM = """You answer the user's question in one or two plain sentences.
+You are given the question as asked and, when it differs, the same question as understood in full. Answer the question as understood, and follow anything the question as asked says about how to present the answer (labels, order, precision).
 Use only the rows provided. Do not add facts, names or numbers that are not in them.
 Mention every row that answers the question; do not drop any.
 If told the result shows only the first 100 rows, say that the list is incomplete.

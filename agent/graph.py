@@ -95,7 +95,10 @@ def build_graph(model, db_path: str):
         return {"checked": True}   # an empty update reaches the trace as None, which breaks it
 
     def answer(state: State):
-        text = ("Question: " + (state.get("understood") or state["question"]) + "\n\nSQL:\n" + state["sql"]
+        understood = state.get("understood") or state["question"]
+        text = ("Question: " + state["question"]      # as asked: it may say how to present the answer
+                + ("\nUnderstood as: " + understood if understood != state["question"] else "")
+                + "\n\nSQL:\n" + state["sql"]
                 + "\n\nColumns: " + ", ".join(state["columns"])
                 + "\nRows:\n" + "\n".join(
                     "(" + ", ".join(repr(v)[:200] for v in r) + ")" for r in state["rows"]))

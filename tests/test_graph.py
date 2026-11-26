@@ -213,7 +213,8 @@ def test_history_reaches_the_sql_prompt_in_order(db_path):
     assert "Earlier in this conversation, oldest first:" in sent
     assert sent.index("How many scored above 70 in X?") < sent.index("SELECT COUNT(*) AS n FROM t WHERE v > 70") < sent.index("3.") < sent.index("Which unit is biggest?") < sent.index("Question: which ones?")
     assert final["understood"] == "Which ones scored above 70 in X?"
-    assert "Question: Which ones scored above 70 in X?" in text_of(model.calls[1])      # the answer step gets the full question
+    answer_text = text_of(model.calls[1])       # the answer step gets the question as asked and as understood
+    assert "Question: which ones?" in answer_text and "Understood as: Which ones scored above 70 in X?" in answer_text
 
 def test_no_history_no_block(db_path):
     for hist in ({}, {"history": []}):
