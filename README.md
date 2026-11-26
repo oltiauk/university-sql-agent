@@ -133,7 +133,7 @@ RUN_LIVE=1 pytest tests/test_live.py
 
 | Decision | What was chosen | Why |
 |---|---|---|
-| Queries per question | One query, with one retry if it fails | The owner's choice: the smallest design that is easy to explain and trace. Multi-step work happens in the graph path and in subqueries. |
+| Queries per question | One query, with one retry if it fails | The smallest design that is easy to explain and trace. Multi-step work happens in the graph path and in subqueries. |
 | Catching valid but wrong SQL | The trace plus known-answer tests, not a second model checking the first | Deterministic and costs no extra model call. A checking model can also be wrong. |
 | Unclear questions | Ask back and end the run | Never presents a guess as a fact, and needs no saved run state. The person's reply starts a new run. |
 | Result checks | Plain code in `check_result` | Fixed, accurate messages; no model is asked to judge or to pick a row. |
