@@ -1,1 +1,335 @@
-<!doctype html><title>Ask the database</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask the database</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:28px 24px 40px;background:#F7F9FC;color:#1B2333;font-family:Inter,system-ui,sans-serif;font-size:14px;line-height:1.5}
+button,input{font-family:inherit}
+button{cursor:pointer}
+button:focus-visible{outline:2px solid #2F6BFF;outline-offset:2px}
+input:focus{outline:none}
+input::placeholder{color:#6B7686}
+h1,h2,p,ol{margin:0}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.page{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:center;gap:20px;max-width:1240px;margin:0 auto}
+.card{background:#FFFFFF;border-radius:28px;box-shadow:0 24px 60px rgba(40,80,150,.07);padding:28px;min-width:0}
+.chat{flex:1 1 520px;max-width:720px;display:flex;flex-direction:column;gap:28px}
+.title{font-size:15px;font-weight:600;letter-spacing:-.01em}
+.thread{display:flex;flex-direction:column;gap:26px}
+.turn{display:flex;flex-direction:column;gap:12px}
+.bubble{align-self:flex-end;max-width:80%;padding:10px 16px;font-size:14px;font-weight:400;background:#EEF3FB;border-radius:20px 20px 6px 20px;text-wrap:pretty}
+.reply{align-self:flex-start;max-width:90%;display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px}
+.orb{width:24px;height:24px;border-radius:999px;background:radial-gradient(circle at 62% 38%,#FFC83A 0%,#FF8A2A 34%,#FF5A4E 62%,#FFD9D2 100%);box-shadow:0 4px 12px rgba(255,120,60,.28)}
+.body{display:flex;flex-direction:column;gap:10px;min-width:0}
+.answer{padding-top:1px;font-size:15px;text-wrap:pretty}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.choice{min-height:36px;padding:7px 16px;font-size:14px;text-align:left;color:#1B2333;background:#FFFFFF;border:1px solid #DCE4F0;border-radius:999px;box-shadow:0 4px 14px rgba(40,80,150,.06)}
+.own{display:flex;align-items:center;gap:6px;height:36px;margin:0;padding:0 4px 0 16px;background:#F4F7FB;border-radius:999px}
+.own input{width:180px;padding:0;font-size:14px;color:#1B2333;background:transparent;border:0}
+:disabled{opacity:.45;cursor:default}
+.round{flex:none;display:inline-flex;align-items:center;justify-content:center;color:#FFFFFF;background:#1B2333;border:0;border-radius:999px}
+.pill{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;font-size:12px;font-weight:500;border:0;border-radius:999px}
+.trace-btn{color:#1B2333;background:#EEF3FB}
+.trace-btn[aria-pressed="true"]{color:#FFFFFF;background:#1B2333}
+.meta{font-size:12px;color:#5B6676}
+.bottom{display:flex;flex-direction:column;gap:12px}
+.example{text-align:left;padding:7px 14px;font-size:13px;color:#3D4756;background:#FFFFFF;border:1px solid #DCE4F0;border-radius:999px}
+.composer{display:flex;flex-direction:column;gap:12px;margin:0;padding:16px;background:#FFFFFF;border-radius:22px;box-shadow:0 10px 36px rgba(60,120,220,.14),0 0 0 1px #EEF3FB}
+.composer input{width:100%;padding:2px 4px;font-size:15px;color:#1B2333;background:transparent;border:0}
+.composer .bar{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.tag{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;font-size:12px;color:#3D4756;background:#EEF3FB;border-radius:999px}
+.trace{flex:1 1 420px;max-width:500px;display:flex;flex-direction:column;gap:22px}
+.trace-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.trace-head div{display:flex;flex-direction:column;gap:6px;min-width:0}
+.trace-q{font-size:13px;color:#3D4756;text-wrap:pretty}
+.small{font-size:11px;color:#5B6676}
+.close{width:32px;height:32px;color:#3D4756;background:#EEF3FB}
+.steps{list-style:none;padding:0;display:flex;flex-direction:column;gap:18px}
+.step{display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px}
+.dot{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;font-size:11px;font-weight:600;border-radius:999px;background:#EEF3FB;color:#3D4756}
+.dot.warn{background:#FFF3D6;color:#6B4A00}
+.dot.bad{background:#FFEEE4;color:#8F3608}
+.step-body{display:flex;flex-direction:column;gap:8px;min-width:0}
+.step-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.step-head div{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}
+.step-label{font-size:14px;font-weight:500}
+.step-text{font-size:14px;color:#3D4756;text-wrap:pretty}
+pre{margin:0;padding:14px 16px;overflow-x:auto;font-size:11.5px;line-height:1.6;color:#1B2333;background:#F4F7FB;border-radius:16px;white-space:pre}
+.err{padding:10px 16px;font-size:11.5px;color:#8F3608;background:#FFEEE4;border-radius:16px}
+.rows{overflow-x:auto;background:#F4F7FB;border-radius:16px;padding:6px 4px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:6px 12px;font-size:11px;font-weight:500;color:#5B6676}
+td{padding:6px 12px;border-top:1px solid #E4EAF3}
+.step ul{margin:0;padding-left:20px}
+summary{cursor:pointer}
+details pre{margin-top:8px}
+@media (min-width:1000px){.trace{position:sticky;top:28px;max-height:calc(100vh - 56px);overflow-y:auto}}
+</style>
+</head>
+<body>
+<div class="page" id="app"></div>
+
+<script>
+(function () {
+var AMBER = { bg: '#FFF3D6', fg: '#6B4A00' }, RED = { bg: '#FFEEE4', fg: '#8F3608' };
+var CHIPS = {
+  clarification: { label: 'Needs a detail', c: AMBER },
+  empty: { label: 'No rows', c: { bg: '#EEF1F5', fg: '#3D4756' } },
+  failed: { label: 'Failed', c: RED },
+  mismatch: { label: 'Not one value', c: AMBER },
+  no_value: { label: 'No value', c: AMBER },
+  error: { label: 'Stopped', c: RED }
+};
+var LABELS = { load_schema: 'Read the tables', generate_sql: 'Write the SQL', execute_sql: 'Run the SQL',
+  check_result: 'Check the result', answer: 'Write the answer' };
+
+// info: /api/state; turns: [{ record, bubble, error, from }]; sel: index of the turn whose trace is open
+var state = { info: null, turns: [], sel: null, busy: false };
+
+function esc(v) {
+  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function own(o, k) { return o && Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined; }
+function arr(v) { return Array.isArray(v) ? v : []; }
+function out(s) { return (s && s.output && typeof s.output === 'object') ? s.output : {}; }
+function lastOut(rec) { var st = arr(rec.steps); return out(st[st.length - 1]); }
+
+var ICON_TRACE = '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="3.5" cy="3.5" r="1.5"></circle><circle cx="3.5" cy="12.5" r="1.5"></circle><path d="M3.5 5v6M7.5 3.5h6M7.5 12.5h6"></path></svg>';
+function iconUp(size) {
+  return '<svg aria-hidden="true" width="' + size + '" height="' + size + '" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"></path></svg>';
+}
+function dis() { return state.busy ? ' disabled' : ''; }
+
+// a clarification is followed up by a later turn sent from it, or (after a reload) by a run asking one of
+// its choices or "<question> (<reply>)"
+function followedUp(i) {
+  var rec = state.turns[i].record, q = String(rec.question), choices = arr(lastOut(rec).choices);
+  return state.turns.slice(i + 1).some(function (t) {
+    if (t.from === i && !t.error) return true;
+    var later = t.record && String(t.record.question);
+    return !!later && (choices.indexOf(later) !== -1 || later.indexOf(q + ' (') === 0);
+  });
+}
+
+function retried(rec) {
+  return arr(rec.steps).filter(function (s) { return s && s.node === 'generate_sql' && out(s).sql; }).length > 1;
+}
+
+function turnHtml(t, i) {
+  var r = t.record, selected = i === state.sel;
+  var h = '<section class="turn" data-turn="' + i + '">';
+  h += '<h2 class="bubble">' + esc(t.bubble) + '</h2>';
+  h += '<div class="reply"><span class="orb" aria-hidden="true"></span><div class="body">';
+  h += '<p class="answer">' + esc(r ? (r.answer == null ? '' : r.answer) : (t.error || 'Working…')) + '</p>';
+  if (r && r.status === 'clarification' && !followedUp(i)) {
+    h += '<div class="row">';
+    arr(lastOut(r).choices).forEach(function (c, n) {
+      h += '<button type="button" class="choice" data-act="pick" data-i="' + i + '" data-c="' + n + '"' + dis() + '>' + esc(c) + '</button>';
+    });
+    h += '<form class="own" data-form="own" data-i="' + i + '">' +
+      '<input type="text" aria-label="Or type your own answer" placeholder="Or type your own answer" autocomplete="off"' + dis() + '>' +
+      '<button type="submit" class="round" aria-label="Send your answer" style="width:28px;height:28px"' + dis() + '>' + iconUp(12) + '</button></form>';
+    h += '</div>';
+  }
+  if (r) {
+    h += '<div class="row">';
+    h += '<button type="button" class="pill trace-btn" data-act="toggle" data-i="' + i + '" aria-pressed="' + selected + '">' + ICON_TRACE + '<span>' + (selected ? 'Hide trace' : 'See trace') + '</span></button>';
+    var chip = own(CHIPS, r.status);
+    if (chip) h += '<span class="pill" style="background:' + chip.c.bg + ';color:' + chip.c.fg + '">' + chip.label + '</span>';
+    if (retried(r)) h += '<span class="meta">1 retry</span>';
+    h += '</div>';
+  }
+  return h + '</div></div></section>';
+}
+
+function rowsHtml(o) {
+  var rows = arr(o.rows);
+  if (!rows.length) return { warn: true, html: '<p class="step-text">0 rows</p>' };
+  var h = '<div class="rows"><table><thead><tr>';
+  arr(o.columns).forEach(function (c) { h += '<th scope="col" class="mono">' + esc(c) + '</th>'; });
+  h += '</tr></thead><tbody>';
+  rows.forEach(function (row) {
+    h += '<tr>';
+    arr(row).forEach(function (v) { h += v === null ? '<td class="meta">NULL</td>' : '<td>' + esc(v) + '</td>'; });
+    h += '</tr>';
+  });
+  h += '</tbody></table></div>';
+  if (o.truncated) h += '<p class="small">Showing the first 100 rows</p>';
+  return { html: h };
+}
+
+// one step of a record -> { label, dot: '' | 'warn' | 'bad', html }
+function stepView(s, i, rec) {
+  var o = out(s), node = s && s.node, label = own(LABELS, node) || 'Step', keys = Object.keys(o);
+  var text = function (v) { return '<p class="step-text">' + esc(v == null ? '' : v) + '</p>'; };
+  if (rec.status === 'error' && i === arr(rec.steps).length - 1 && keys.length === 1 && keys[0] === 'error') {
+    return { label: label, dot: 'bad', html: text('This step stopped: ' + o.error) };
+  }
+  if (node === 'load_schema') {
+    var schema = String(o.schema == null ? '' : o.schema), names = [], m;
+    var re = /^CREATE\s+(?:TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?["`\[]?([^\s("`\]]+)/gim;
+    while ((m = re.exec(schema))) names.push(m[1]);
+    return { label: label, dot: '', html: text(names.length + (names.length === 1 ? ' table: ' : ' tables: ') + names.join(', ')) +
+      '<details><summary class="meta">Show what the model was given</summary><pre class="mono">' + esc(schema) + '</pre></details>' };
+  }
+  if (node === 'generate_sql') {
+    if (o.sql) {
+      var earlier = arr(rec.steps).slice(0, i).some(function (p) { return p && p.node === 'generate_sql' && out(p).sql; });
+      return { label: earlier ? 'Write the SQL again' : label, dot: '',
+        html: '<pre class="mono">' + esc(o.sql) + '</pre>' + (o.expects_single_value ? '<p class="small">Expects a single value</p>' : '') };
+    }
+    if (o.clarification) {
+      var list = arr(o.choices).map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('');
+      return { label: 'Ask back', dot: 'warn',
+        html: text(o.clarification) + (list ? '<ul class="step-text">' + list + '</ul>' : '') + text('No SQL was run.') };
+    }
+    return { label: label, dot: 'bad', html: text(o.answer) };
+  }
+  if (node === 'execute_sql') {
+    if (Array.isArray(o.rows)) { var v = rowsHtml(o); return { label: label, dot: v.warn ? 'warn' : '', html: v.html }; }
+    return { label: label, dot: 'bad', html: '<p class="mono err">' + esc(o.error) + '</p>' };
+  }
+  if (node === 'check_result') {
+    return o.checked ? { label: label, dot: '', html: text('Fits the question.') } : { label: label, dot: 'warn', html: text(o.answer) };
+  }
+  if (node === 'answer') return { label: label, dot: o.status === 'failed' ? 'bad' : '', html: text(o.answer) };
+  return { label: label, dot: '', html: '' };
+}
+
+function traceHtml(rec) {
+  var head = ['run ' + rec.run_id, rec.database, rec.provider, rec.model, rec.status].map(esc).join(' · ');
+  var h = '<aside class="card trace" aria-label="Trace"><div class="trace-head"><div>' +
+    '<h2 class="title">Trace</h2>' +
+    '<p class="trace-q">' + esc(rec.question) + '</p>' +
+    '<p class="mono small">' + head + '</p></div>' +
+    '<button type="button" class="round close" data-act="close" aria-label="Close trace"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"></path></svg></button></div>';
+  h += '<ol class="steps">';
+  arr(rec.steps).forEach(function (s, i) {
+    var v = stepView(s, i, rec);
+    h += '<li class="step"><span class="dot' + (v.dot ? ' ' + v.dot : '') + '">' + (i + 1) + '</span><div class="step-body">';
+    h += '<div class="step-head"><div><span class="step-label">' + esc(v.label) + '</span><span class="mono small">' + esc(s && s.node != null ? s.node : '') + '</span></div>' +
+      '<span class="mono small">' + esc(Number(s && s.duration_ms).toLocaleString('en-US') + ' ms') + '</span></div>';
+    h += v.html + '</div></li>';
+  });
+  return h + '</ol></aside>';
+}
+
+function chatHtml() {
+  var info = state.info;
+  var h = '<main class="card chat"><h1 class="title">Ask the database</h1>';
+  if (state.turns.length) h += '<div class="thread">' + state.turns.map(turnHtml).join('') + '</div>';
+  h += '<div class="bottom">';
+  var examples = arr(info.examples);
+  if (examples.length) {
+    h += '<div class="row">';
+    examples.forEach(function (x, n) {
+      h += '<button type="button" class="example" data-act="ask" data-x="' + n + '"' + dis() + '>' + esc(x) + '</button>';
+    });
+    h += '</div>';
+  }
+  h += '<form class="composer" data-form="ask">' +
+    '<label class="sr" for="q">Your question</label>' +
+    '<input id="q" type="text" placeholder="Ask a question" autocomplete="off"' + dis() + '>' +
+    '<div class="bar"><div class="row"><span class="tag">' + esc(info.database) + '</span><span class="tag">' + esc(info.provider + ' · ' + info.model) + '</span></div>' +
+    '<button type="submit" class="round" aria-label="Ask" style="width:36px;height:36px"' + dis() + '>' + iconUp(15) + '</button></div></form></div></main>';
+  return h;
+}
+
+var app = document.getElementById('app');
+
+function render(scrollTo) {
+  if (!state.info.ready) {
+    app.innerHTML = '<main class="card chat"><p>Choose a model first</p></main>';
+    return;
+  }
+  var q = document.getElementById('q'), typed = q ? q.value : '';
+  var cur = state.turns[state.sel];
+  app.innerHTML = chatHtml() + (cur && cur.record ? traceHtml(cur.record) : '');
+  document.getElementById('q').value = typed;
+  if (scrollTo != null) {
+    var el = app.querySelector('[data-turn="' + scrollTo + '"]');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function getJson(path) {
+  return fetch(path).then(function (res) { return res.json(); });
+}
+
+function load() {
+  return getJson('/api/state').then(function (info) {
+    state.info = info;
+    return getJson('/api/runs');
+  }).then(function (data) {
+    state.turns = arr(data.runs).map(function (r) { return { record: r, bubble: r.question }; });
+    state.sel = state.turns.length ? state.turns.length - 1 : null;
+    render(state.sel);
+  }).catch(function () {
+    app.innerHTML = '<main class="card chat"><p>Could not reach the app</p></main>';
+  });
+}
+
+// body: {question} or {original, reply}; bubble: what the person typed or clicked; from: the clarification turn
+function ask(body, bubble, from) {
+  if (state.busy) return;
+  var t = { record: null, bubble: bubble, error: null, from: from };
+  state.turns.push(t);
+  var i = state.turns.length - 1;
+  state.busy = true;
+  render(i);
+  fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function (res) {
+      return res.json().then(function (data) {
+        if (res.ok) { t.record = data; state.sel = i; } else { t.error = (data && data.error) || 'The app gave no answer'; }
+      });
+    })
+    .catch(function () { t.error = 'The app gave no answer'; })
+    .then(function () {
+      state.busy = false;
+      render(i);
+      document.getElementById('q').focus();
+    });
+}
+
+app.addEventListener('click', function (ev) {
+  var b = ev.target.closest('[data-act]');
+  if (!b || b.disabled) return;
+  var act = b.getAttribute('data-act'), i = Number(b.getAttribute('data-i'));
+  if (act === 'toggle') {
+    state.sel = state.sel === i ? null : i;
+    render();
+  } else if (act === 'close') {
+    state.sel = null;
+    render();
+  } else if (act === 'pick') {
+    var choice = arr(lastOut(state.turns[i].record).choices)[Number(b.getAttribute('data-c'))];
+    ask({ question: choice }, choice, i);
+  } else if (act === 'ask') {
+    var x = arr(state.info.examples)[Number(b.getAttribute('data-x'))];
+    ask({ question: x }, x);
+  }
+});
+
+app.addEventListener('submit', function (ev) {
+  ev.preventDefault();
+  var form = ev.target, input = form.querySelector('input'), text = input.value.trim();
+  if (!text || state.busy) return;
+  if (form.getAttribute('data-form') === 'own') {
+    var i = Number(form.getAttribute('data-i'));
+    ask({ original: state.turns[i].record.question, reply: text }, text, i);
+  } else {
+    input.value = '';
+    ask({ question: text }, text);
+  }
+});
+
+load();
+})();
+</script>
+</body>
+</html>
