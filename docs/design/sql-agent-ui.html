@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask the database</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:28px 24px 40px;background:#F7F9FC;color:#1B2333;font-family:Inter,system-ui,sans-serif;font-size:14px;line-height:1.5}
+button,input{font-family:inherit}
+button{cursor:pointer}
+button:focus-visible{outline:2px solid #2F6BFF;outline-offset:2px}
+input:focus{outline:none}
+input::placeholder{color:#6B7686}
+h1,h2,p,ol{margin:0}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.page{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:center;gap:20px;max-width:1240px;margin:0 auto}
+.card{background:#FFFFFF;border-radius:28px;box-shadow:0 24px 60px rgba(40,80,150,.07);padding:28px;min-width:0}
+.chat{flex:1 1 520px;max-width:720px;display:flex;flex-direction:column;gap:28px}
+.title{font-size:15px;font-weight:600;letter-spacing:-.01em}
+.thread{display:flex;flex-direction:column;gap:26px}
+.turn{display:flex;flex-direction:column;gap:12px}
+.bubble{align-self:flex-end;max-width:80%;padding:10px 16px;font-size:14px;font-weight:400;background:#EEF3FB;border-radius:20px 20px 6px 20px;text-wrap:pretty}
+.reply{align-self:flex-start;max-width:90%;display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px}
+.orb{width:24px;height:24px;border-radius:999px;background:radial-gradient(circle at 62% 38%,#FFC83A 0%,#FF8A2A 34%,#FF5A4E 62%,#FFD9D2 100%);box-shadow:0 4px 12px rgba(255,120,60,.28)}
+.body{display:flex;flex-direction:column;gap:10px;min-width:0}
+.answer{padding-top:1px;font-size:15px;text-wrap:pretty}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.choice{height:36px;padding:0 16px;font-size:14px;color:#1B2333;background:#FFFFFF;border:1px solid #DCE4F0;border-radius:999px;box-shadow:0 4px 14px rgba(40,80,150,.06)}
+.own{display:flex;align-items:center;gap:6px;height:36px;margin:0;padding:0 4px 0 16px;background:#F4F7FB;border-radius:999px}
+.own input{width:124px;padding:0;font-size:14px;color:#1B2333;background:transparent;border:0}
+.round{flex:none;display:inline-flex;align-items:center;justify-content:center;color:#FFFFFF;background:#1B2333;border:0;border-radius:999px}
+.pill{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;font-size:12px;font-weight:500;border:0;border-radius:999px}
+.trace-btn{color:#1B2333;background:#EEF3FB}
+.trace-btn[aria-pressed="true"]{color:#FFFFFF;background:#1B2333}
+.meta{font-size:12px;color:#5B6676}
+.bottom{display:flex;flex-direction:column;gap:12px}
+.example{text-align:left;padding:7px 14px;font-size:13px;color:#3D4756;background:#FFFFFF;border:1px solid #DCE4F0;border-radius:999px}
+.composer{display:flex;flex-direction:column;gap:12px;margin:0;padding:16px;background:#FFFFFF;border-radius:22px;box-shadow:0 10px 36px rgba(60,120,220,.14),0 0 0 1px #EEF3FB}
+.composer input{width:100%;padding:2px 4px;font-size:15px;color:#1B2333;background:transparent;border:0}
+.composer .bar{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.tag{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;font-size:12px;color:#3D4756;background:#EEF3FB;border-radius:999px}
+.trace{flex:1 1 420px;max-width:500px;display:flex;flex-direction:column;gap:22px}
+.trace-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.trace-head div{display:flex;flex-direction:column;gap:6px;min-width:0}
+.trace-q{font-size:13px;color:#3D4756;text-wrap:pretty}
+.small{font-size:11px;color:#5B6676}
+.close{width:32px;height:32px;color:#3D4756;background:#EEF3FB}
+.steps{list-style:none;padding:0;display:flex;flex-direction:column;gap:18px}
+.step{display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px}
+.dot{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;font-size:11px;font-weight:600;border-radius:999px;background:#EEF3FB;color:#3D4756}
+.dot.warn{background:#FFF3D6;color:#6B4A00}
+.dot.bad{background:#FFEEE4;color:#8F3608}
+.step-body{display:flex;flex-direction:column;gap:8px;min-width:0}
+.step-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.step-head div{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}
+.step-label{font-size:14px;font-weight:500}
+.step-text{font-size:14px;color:#3D4756;text-wrap:pretty}
+pre{margin:0;padding:14px 16px;overflow-x:auto;font-size:11.5px;line-height:1.6;color:#1B2333;background:#F4F7FB;border-radius:16px;white-space:pre}
+.err{padding:10px 16px;font-size:11.5px;color:#8F3608;background:#FFEEE4;border-radius:16px}
+.rows{overflow-x:auto;background:#F4F7FB;border-radius:16px;padding:6px 4px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:6px 12px;font-size:11px;font-weight:500;color:#5B6676}
+td{padding:6px 12px;border-top:1px solid #E4EAF3}
+@media (min-width:1000px){.trace{position:sticky;top:28px;max-height:calc(100vh - 56px);overflow-y:auto}}
+</style>
+</head>
+<body>
+<div class="page" id="app"></div>
+
+<script>
+(function () {
+var PASS_Q = 'How many students passed Databases in Fall 2025?';
+var EMPTY_Q = 'Which students were enrolled in Databases in Spring 2024?';
+var FAILED_Q = "What is each teacher's email address?";
+var GRADES = [95, 88, 82, 70, 55];
+var EXAMPLES = [
+  { kind: 'pass', label: PASS_Q },
+  { kind: 'empty', label: EMPTY_Q },
+  { kind: 'failed', label: FAILED_Q }
+];
+var CHIPS = {
+  clarification: { label: 'Needs a detail', bg: '#FFF3D6', fg: '#6B4A00' },
+  empty: { label: 'No rows', bg: '#EEF1F5', fg: '#3D4756' },
+  failed: { label: 'Failed', bg: '#FFEEE4', fg: '#8F3608' }
+};
+
+var state = { sel: 'r1', thread: [], seq: 0 };
+
+var JOINS = [
+  'FROM enrollments e',
+  'JOIN students s ON s.id = e.student_id',
+  'JOIN offerings o ON o.id = e.offering_id',
+  'JOIN courses c ON c.id = o.course_id'
+];
+
+function sqlAbove() {
+  return ['SELECT s.name AS student, e.grade AS grade'].concat(JOINS, [
+    "WHERE c.title = 'Databases'",
+    "  AND o.semester = '2025-Fall'",
+    '  AND e.grade > (',
+    '    SELECT AVG(e2.grade) FROM enrollments e2',
+    '    WHERE e2.offering_id = o.id)',
+    'ORDER BY e.grade DESC'
+  ]).join('\n');
+}
+function sqlTwo(col) {
+  return [
+    'SELECT e.grade AS grade,',
+    '  (SELECT AVG(e2.grade) FROM enrollments e2',
+    '   WHERE e2.offering_id = o.id) AS class_average'
+  ].concat(JOINS, [
+    "WHERE s.name = 'Arta'",
+    '  AND c.' + col + " = 'Databases'",
+    "  AND o.semester = '2025-Fall'"
+  ]).join('\n');
+}
+function sqlCount(min) {
+  return [
+    'SELECT COUNT(*) AS students_passed',
+    'FROM enrollments e',
+    'JOIN offerings o ON o.id = e.offering_id',
+    'JOIN courses c ON c.id = o.course_id',
+    "WHERE c.title = 'Databases'",
+    "  AND o.semester = '2025-Fall'",
+    '  AND e.grade >= ' + min
+  ].join('\n');
+}
+function sqlEmpty() {
+  return ['SELECT s.name AS student'].concat(JOINS, [
+    "WHERE c.title = 'Databases'",
+    "  AND o.semester = '2024-Spring'"
+  ]).join('\n');
+}
+function schemaStep() {
+  return { label: 'Read the tables', node: 'load_schema', ms: '4 ms', text: '5 tables: teachers, students, courses, offerings, enrollments' };
+}
+function runId(n, extra) { return (6095529 + n * 4099 + extra).toString(16); }
+
+function seeded() {
+  var a1 = 'Arta, Blerim and Dren scored above the class average in Databases in Fall 2025.';
+  return [
+    { id: 'r1', status: 'answered', runId: '7c41e0',
+      question: 'Which students scored above the class average in Databases in Fall 2025?',
+      answer: a1,
+      steps: [
+        schemaStep(),
+        { label: 'Write the SQL', node: 'generate_sql', ms: '1,640 ms', sql: sqlAbove() },
+        { label: 'Run the SQL', node: 'execute_sql', ms: '3 ms', columns: ['student', 'grade'], rows: [['Arta', 95], ['Blerim', 88], ['Dren', 82]] },
+        { label: 'Write the answer', node: 'answer', ms: '910 ms', text: a1 }
+      ] },
+    { id: 'r2', status: 'answered', runId: '91be3a', retried: true,
+      question: "What is Arta's grade in Databases in Fall 2025, and what is the class average?",
+      answer: 'Grade: 95. Class average: 78.0.',
+      steps: [
+        schemaStep(),
+        { label: 'Write the SQL', node: 'generate_sql', ms: '1,520 ms', sql: sqlTwo('name') },
+        { label: 'Run the SQL', node: 'execute_sql', ms: '1 ms', error: 'no such column: c.name', bad: true },
+        { label: 'Write the SQL again', node: 'generate_sql', ms: '1,480 ms', sql: sqlTwo('title') },
+        { label: 'Run the SQL', node: 'execute_sql', ms: '3 ms', columns: ['grade', 'class_average'], rows: [[95, '78.0']] },
+        { label: 'Write the answer', node: 'answer', ms: '690 ms', text: 'Grade: 95. Class average: 78.0.' }
+      ] }
+  ];
+}
+
+function expand(entry) {
+  if (entry.kind === 'empty') {
+    return [{ id: entry.uid, status: 'empty', runId: runId(entry.n, 0), question: EMPTY_Q,
+      answer: 'The query ran but returned no rows.',
+      steps: [
+        schemaStep(),
+        { label: 'Write the SQL', node: 'generate_sql', ms: '1,270 ms', sql: sqlEmpty() },
+        { label: 'Run the SQL', node: 'execute_sql', ms: '2 ms', text: '0 rows', warn: true }
+      ] }];
+  }
+  if (entry.kind === 'failed') {
+    return [{ id: entry.uid, status: 'failed', runId: runId(entry.n, 0), retried: true, question: FAILED_Q,
+      answer: 'This question could not be answered. Last error: no such column: t.email_address',
+      steps: [
+        schemaStep(),
+        { label: 'Write the SQL', node: 'generate_sql', ms: '1,090 ms', sql: 'SELECT name AS teacher, email\nFROM teachers' },
+        { label: 'Run the SQL', node: 'execute_sql', ms: '1 ms', error: 'no such column: email', bad: true },
+        { label: 'Write the SQL again', node: 'generate_sql', ms: '1,150 ms', sql: 'SELECT t.name AS teacher,\n  t.email_address AS email\nFROM teachers t' },
+        { label: 'Run the SQL', node: 'execute_sql', ms: '1 ms', error: 'no such column: t.email_address', bad: true }
+      ] }];
+  }
+  var out = [{ id: entry.uid, status: 'clarification', runId: runId(entry.n, 0), question: PASS_Q,
+    answer: 'What grade should count as passing?',
+    pending: entry.reply === null, entryUid: entry.uid,
+    steps: [
+      schemaStep(),
+      { label: 'Ask back', node: 'generate_sql', ms: '1,190 ms', warn: true,
+        text: 'The tables have grades but no passing grade, so the agent asked: "What grade should count as passing?" Choices: 60 or higher, 75 or higher. No SQL was run.' }
+    ] }];
+  if (entry.reply !== null) {
+    var min = Number(entry.reply);
+    var count = GRADES.filter(function (g) { return g >= min; }).length;
+    var answer = count + (count === 1 ? ' student passed.' : ' students passed.');
+    out.push({ id: entry.uid + 'a', status: 'answered', runId: runId(entry.n, 1),
+      bubble: entry.typed ? entry.reply : entry.reply + ' or higher',
+      question: entry.typed
+        ? PASS_Q + ' (' + entry.reply + ')'
+        : 'How many students scored ' + entry.reply + ' or higher in Databases in Fall 2025?',
+      answer: answer,
+      steps: [
+        schemaStep(),
+        { label: 'Write the SQL', node: 'generate_sql', ms: '1,310 ms', sql: sqlCount(entry.reply) },
+        { label: 'Run the SQL', node: 'execute_sql', ms: '2 ms', columns: ['students_passed'], rows: [[count]] },
+        { label: 'Write the answer', node: 'answer', ms: '780 ms', text: answer }
+      ] });
+  }
+  return out;
+}
+
+function allRuns() {
+  var list = seeded();
+  state.thread.forEach(function (e) { list = list.concat(expand(e)); });
+  return list;
+}
+
+function esc(v) {
+  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function parseNumber(text) {
+  var t = String(text || '').trim();
+  var n = Number(t);
+  if (t === '' || isNaN(n) || n < 0 || n > 100) return null;
+  return String(n);
+}
+function norm(t) { return String(t || '').trim().toLowerCase().replace(/[?.!]+$/, ''); }
+
+var ICON_TRACE = '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="3.5" cy="3.5" r="1.5"></circle><circle cx="3.5" cy="12.5" r="1.5"></circle><path d="M3.5 5v6M7.5 3.5h6M7.5 12.5h6"></path></svg>';
+function iconUp(size) {
+  return '<svg aria-hidden="true" width="' + size + '" height="' + size + '" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"></path></svg>';
+}
+
+function turnHtml(r) {
+  var selected = r.id === state.sel;
+  var h = '<section class="turn" data-run="' + r.id + '">';
+  h += '<h2 class="bubble">' + esc(r.bubble || r.question) + '</h2>';
+  h += '<div class="reply"><span class="orb" aria-hidden="true"></span><div class="body">';
+  h += '<p class="answer">' + esc(r.answer) + '</p>';
+  if (r.pending) {
+    h += '<div class="row">';
+    ['60', '75'].forEach(function (v) {
+      h += '<button type="button" class="choice" data-act="pick" data-uid="' + r.entryUid + '" data-v="' + v + '">' + v + ' or higher</button>';
+    });
+    h += '<form class="own" data-form="own" data-uid="' + r.entryUid + '">' +
+      '<input type="text" inputmode="numeric" aria-label="Your own number" placeholder="Your own number">' +
+      '<button type="submit" class="round" aria-label="Send your number" style="width:28px;height:28px">' + iconUp(12) + '</button></form>';
+    h += '</div>';
+  }
+  h += '<div class="row">';
+  h += '<button type="button" class="pill trace-btn" data-act="toggle" data-id="' + r.id + '" aria-pressed="' + selected + '">' + ICON_TRACE + '<span>' + (selected ? 'Hide trace' : 'See trace') + '</span></button>';
+  var chip = CHIPS[r.status];
+  if (chip) h += '<span class="pill" style="background:' + chip.bg + ';color:' + chip.fg + '">' + chip.label + '</span>';
+  if (r.retried) h += '<span class="meta">1 retry</span>';
+  h += '</div></div></div></section>';
+  return h;
+}
+
+function traceHtml(r) {
+  var h = '<aside class="card trace" aria-label="Trace"><div class="trace-head"><div>' +
+    '<h2 class="title">Trace</h2>' +
+    '<p class="trace-q">' + esc(r.question) + '</p>' +
+    '<p class="mono small">run ' + r.runId + ' · university.db · anthropic · ' + r.status + '</p></div>' +
+    '<button type="button" class="round close" data-act="close" aria-label="Close trace"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"></path></svg></button></div>';
+  h += '<ol class="steps">';
+  r.steps.forEach(function (s, i) {
+    h += '<li class="step"><span class="dot' + (s.bad ? ' bad' : s.warn ? ' warn' : '') + '">' + (i + 1) + '</span><div class="step-body">';
+    h += '<div class="step-head"><div><span class="step-label">' + esc(s.label) + '</span><span class="mono small">' + s.node + '</span></div><span class="mono small">' + s.ms + '</span></div>';
+    if (s.text) h += '<p class="step-text">' + esc(s.text) + '</p>';
+    if (s.sql) h += '<pre class="mono">' + esc(s.sql) + '</pre>';
+    if (s.error) h += '<p class="mono err">' + esc(s.error) + '</p>';
+    if (s.rows) {
+      h += '<div class="rows"><table><thead><tr>';
+      s.columns.forEach(function (c) { h += '<th scope="col" class="mono">' + esc(c) + '</th>'; });
+      h += '</tr></thead><tbody>';
+      s.rows.forEach(function (row) {
+        h += '<tr>';
+        row.forEach(function (v) { h += '<td>' + esc(v) + '</td>'; });
+        h += '</tr>';
+      });
+      h += '</tbody></table></div>';
+    }
+    h += '</div></li>';
+  });
+  return h + '</ol></aside>';
+}
+
+var app = document.getElementById('app');
+
+function render(scrollTo) {
+  var runs = allRuns();
+  var cur = runs.filter(function (r) { return r.id === state.sel; })[0];
+  var h = '<main class="card chat"><h1 class="title">Ask the database</h1><div class="thread">';
+  runs.forEach(function (r) { h += turnHtml(r); });
+  h += '</div><div class="bottom"><div class="row">';
+  EXAMPLES.forEach(function (x) {
+    h += '<button type="button" class="example" data-act="ask" data-kind="' + x.kind + '">' + esc(x.label) + '</button>';
+  });
+  h += '</div><form class="composer" data-form="ask">' +
+    '<label class="sr" for="q">Your question</label>' +
+    '<input id="q" type="text" placeholder="Ask a question" autocomplete="off">' +
+    '<div class="bar"><div class="row"><span class="tag">university.db</span><span class="tag">Claude</span></div>' +
+    '<button type="submit" class="round" aria-label="Ask" style="width:36px;height:36px">' + iconUp(15) + '</button></div></form></div></main>';
+  if (cur) h += traceHtml(cur);
+  app.innerHTML = h;
+  if (scrollTo) {
+    var el = app.querySelector('[data-run="' + scrollTo + '"]');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function ask(kind) {
+  var uid = 'x' + state.seq;
+  state.thread.push({ uid: uid, n: state.seq, kind: kind, reply: null, typed: false });
+  state.seq += 1;
+  state.sel = uid;
+  render(uid);
+}
+function reply(uid, value, typed) {
+  state.thread.forEach(function (e) {
+    if (e.uid === uid) { e.reply = value; e.typed = typed; }
+  });
+  state.sel = uid + 'a';
+  render(uid + 'a');
+}
+
+app.addEventListener('click', function (ev) {
+  var b = ev.target.closest('[data-act]');
+  if (!b) return;
+  var act = b.getAttribute('data-act');
+  if (act === 'toggle') {
+    var id = b.getAttribute('data-id');
+    state.sel = state.sel === id ? null : id;
+    render();
+  } else if (act === 'close') {
+    state.sel = null;
+    render();
+  } else if (act === 'pick') {
+    reply(b.getAttribute('data-uid'), b.getAttribute('data-v'), false);
+  } else if (act === 'ask') {
+    ask(b.getAttribute('data-kind'));
+  }
+});
+
+app.addEventListener('submit', function (ev) {
+  ev.preventDefault();
+  var form = ev.target;
+  var kind = form.getAttribute('data-form');
+  var input = form.querySelector('input');
+  if (kind === 'own') {
+    var n = parseNumber(input.value);
+    if (n !== null) reply(form.getAttribute('data-uid'), n, true);
+    return;
+  }
+  var text = input.value;
+  if (norm(text) === '') return;
+  var pending = state.thread.filter(function (t) { return t.kind === 'pass' && t.reply === null; }).pop();
+  var num = parseNumber(text);
+  if (pending && num !== null) { reply(pending.uid, num, true); return; }
+  var hit = EXAMPLES.filter(function (x) { return norm(x.label) === norm(text); })[0];
+  if (hit) ask(hit.kind);
+});
+
+render();
+})();
+</script>
+</body>
+</html>
