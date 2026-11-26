@@ -112,10 +112,10 @@ The seed must also make plausible wrong queries give a different result from the
 
 ## DB layer (`agent/db.py`)
 
-- Opens the file read-only (`file:<path>?mode=ro`), so writes fail at the database even if the guard is bypassed.
-- `get_schema(conn)`: returns, for each table, its `CREATE TABLE` statement from `sqlite_master` followed by its first 3 rows. **(call)** The sample rows show the model how values are written (for example `'2025-Fall'`), which the table definitions alone do not. Without them a filter on `'Fall 2025'` returns nothing and the run reports no records, which is a wrong answer that looks right. This text, read from the connected database, is the only thing the agent knows about it.
+- Opens the file read-only (`file:<path>?mode=ro`, with the path escaped so characters such as `?` and `#` cannot drop the read-only setting), so writes fail at the database even if the guard is bypassed. A write hidden behind `WITH` passes the guard and is stopped here.
+- `get_schema(conn)`: returns, for each table and view, its `CREATE` statement from `sqlite_master` followed by its first 3 rows, each value cut at 100 characters. **(call)** The sample rows show the model how values are written (for example `'2025-Fall'`), which the table definitions alone do not. Without them a filter on `'Fall 2025'` returns nothing and the run reports no records, which is a wrong answer that looks right. This text, read from the connected database, is the only thing the agent knows about it.
 - Guard: exactly one statement, starting with `SELECT` or `WITH`. Anything else is rejected with a clear message before it reaches the database.
-- `run_query(conn, sql)`: returns column names and rows, capped at 100 rows with a `truncated` flag. **(call)**
+- `run_query(conn, sql)`: returns column names and rows, capped at 100 rows with a `truncated` flag. **(call)** A query is stopped after 5 seconds and reported as a database error, so a query that never finishes cannot hang the app. **(call, from the M1 code review)**
 
 ## Graph
 
@@ -276,6 +276,7 @@ An independent review asked whether every check here can pass while a user still
 - Status `answered` means the query ran and an answer was worded from its rows. It does not mean the query matched what the person meant. The tests catch specific known mistakes on known data; they cannot prove every question is translated correctly.
 - A filter on a value written differently from the data (for example a semester format not among the sample rows) can produce a count of zero that looks like a fact. The trace shows the filter that was used; nothing detects the mismatch automatically.
 - The final sentence is written by a model and can misstate the rows. The live tests check the sentence for every expected value on the known questions; for any other question the trace is where the rows and the sentence can be compared.
+- The schema reader fails on a database with a table from a missing SQLite extension, or with text that is not valid UTF-8. Found in the M1 code review and not fixed.
 - Passing the live questions on one model says nothing certain about other models, other phrasings or repeated runs.
 - Text stored in the database is sent to the model as part of the schema sample and the result rows. A database containing hostile text could steer the model. Read-only access protects the data, not the truth of the answer. Covered in `docs/production.md` under security; not defended against here.
 
