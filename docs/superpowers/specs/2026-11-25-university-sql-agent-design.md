@@ -145,7 +145,8 @@ Five nodes: `load_schema`, `generate_sql`, `execute_sql`, `check_result`, `answe
   - When a question asks for information the database does not hold (email addresses when only names are stored), the agent says what is not stored and what is, and offers only questions the existing columns can answer. It runs no SQL and never makes the information up. This uses the clarification exit; there is no new status.
   - When the missing detail is one the person decides (a passing cutoff), each choice states one concrete value, so a picked choice is answered at once.
   - A choice never supplies facts the database lacks.
-  - The answer rounds averages and other non-whole numbers to at most two decimal places unless the question asks for more.
+  - In the answer, a number with more than two decimal places is shown rounded to two (91.333333 as 91.33); whole numbers and numbers with one or two decimal places are left as they are (8, 8.5); a precision asked for in the question is used. The SQL result and the trace keep the full values.
+  - A question that asks for two or more values is not a single value, even when the database returns them in one row. The result check itself is unchanged.
 - **execute_sql**: guard, then run. A guard rejection and a database error are treated the same: both set `error` and count as a failed attempt.
 - **Retry**: exactly one. Two attempts in total, never a third.
 - **failed**: the answer is "The question could not be answered. Last error: <error>". No invented answer. Also used when the model returns neither SQL nor a question, or an empty answer.

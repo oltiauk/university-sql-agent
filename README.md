@@ -139,7 +139,7 @@ pytest
 
 The offline tests use a scripted fake model (`tests/fakes.py`) that replays fixed replies and records every message it was sent, so they need no key and no network. They cover the seed data, the read-only connection and SQL check, the graph's paths and result checks, the trace, the command line, key safety, the known-answer helpers with demonstrations of wrong runs being caught, the second database and the example generator. A clean run shows every test passing and the live tests skipped.
 
-The live tests are opt-in: nine questions put to a real model. Six are judged by the returned rows (compared field by field) and the answer text, not by the SQL text, one of them checking that an average is rounded to two decimal places; three check asking back: an unclear question, a question whose conditions must survive into the choices, and a question about information the database does not hold. They need the provider, model and key in `.env` and make real model calls:
+The live tests are opt-in: eleven questions put to a real model. Eight are judged by the returned rows (compared field by field) or the answer text, not by the SQL text; three of those check how numbers are shown (a long decimal rounded to two places while the trace keeps the full value, a requested precision used, a short decimal left alone). Three check asking back: an unclear question, a question whose conditions must survive into the choices, and a question about information the database does not hold. They need the provider, model and key in `.env` and make real model calls:
 
 ```bash
 RUN_LIVE=1 pytest tests/test_live.py

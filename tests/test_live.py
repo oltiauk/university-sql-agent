@@ -105,3 +105,15 @@ def test_averages_are_rounded_to_two_places(db_path, tmp_path):
     verify(rec, "answered",
            rows_problem(rec, [{"value": 91.3}], {"value": ("",)}),
            None if "91.33" in rec["answer"] and "91.333" not in rec["answer"] else f"not rounded to two places: {rec['answer']}")
+    value = next(s["output"]["rows"][0][0] for s in rec["steps"] if s["node"] == "execute_sql")
+    assert abs(value - 91.3333333333) < 1e-6, f"the trace should keep the full value, got {value}"
+
+
+def test_precision_asked_for_is_used(db_path, tmp_path):
+    rec = run("What is the average grade in the classes taught by Besnik Krasniqi, to 4 decimal places?", db_path, tmp_path)
+    verify(rec, "answered", None if "91.3333" in rec["answer"] else f"asked for 4 places: {rec['answer']}")
+
+
+def test_short_numbers_are_left_alone(db_path, tmp_path):
+    rec = run("What is the average grade in the Algorithms class in Fall 2025?", db_path, tmp_path)   # 93.5
+    verify(rec, "answered", None if "93.5" in rec["answer"] and "93.50" not in rec["answer"] else f"93.5 was changed: {rec['answer']}")
