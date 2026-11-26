@@ -168,7 +168,7 @@ Either way it is a new, ordinary run with its own trace, and the trace shows the
 
 - CLI: provider, model name and key come from environment variables (`LLM_PROVIDER`, `LLM_MODEL`, and the provider's own key variable). `.env` is git-ignored; `.env.example` is committed. `LLM_MODEL` is required; no model name is hard-coded in the code. **(call)**
 - All three providers are wired through the same call. One provider, the one whose key the owner supplies for the build, is verified live. The other two are verified only if a key or a running Ollama is available at the time. **(call)**
-- Structured output uses LangChain's `with_structured_output`. If a model cannot produce it, the run ends as `failed` with that error. No fallback parser. **(call)**
+- Structured output uses LangChain's `with_structured_output`. If a model cannot produce it, the run ends as `error` (see Tracing). No fallback parser. **(call)**
 - UI (milestone 5): provider picker and key entry, described there.
 - The key is passed only to the model constructor. It is never placed in graph state, so it cannot reach a trace.
 
@@ -184,6 +184,8 @@ steps: [ { node, at, duration_ms, output } ]
 ```
 
 `output` is what that node added to the state: the SQL, the error, the columns and rows, the clarification, the answer. A retried run shows `generate_sql` and `execute_sql` twice, with the error between them.
+
+When a step itself breaks, for example the provider call fails or the run is interrupted, the trace is still saved. Decided by the owner: it shows which step failed and a short safe message. The record gets a step for that node, status `error`, and the answer "Run stopped at <node>: <error type>." Only the error's type is kept; the provider's own error text is never stored or printed, because it can carry request details.
 
 CLI:
 
