@@ -1,4 +1,8 @@
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # langsmith (pulled in by langchain) calls a function Python 3.15 deprecates; not our code
+    "ignore:.asyncio.iscoroutinefunction. is deprecated:DeprecationWarning",
+]
