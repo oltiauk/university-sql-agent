@@ -60,7 +60,7 @@ def app(db_path, tmp_path, monkeypatch):
     try:
         yield SimpleNamespace(get=get, post=post, get_raw=get_raw, post_raw=post_raw, queue=queued.append,
                               fail_with=lambda e: failure.append(e), created=created,
-                              traces=tmp_path / "traces", db=db_path)
+                              traces=tmp_path / "traces", db=db_path, port=port)
     finally:
         server.shutdown()
         server.server_close()
@@ -177,3 +177,14 @@ def test_page_is_served_and_unknown_paths_are_404(app):
     status, body = app.get_raw("/")
     assert status == 200 and b"<!doctype html>" in body.lower()
     assert app.get("/nope")[0] == 404
+
+def test_handler_helpers_are_not_http_methods(app):
+    for method in ("setup", "ask", "SETUP", "ask"):
+        for path in ("/api/setup", "/api/ask"):
+            try:
+                status, _ = _request(app.port, method, path, body=b'{"provider": "ollama", "model": "m", "question": "q"}',
+                                     content_type="application/json")
+            except (http.client.HTTPException, OSError):
+                status = None
+            assert status == 501, (method, path, status)
+    assert app.created == [] and not list(app.traces.glob("*.json"))

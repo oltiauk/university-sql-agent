@@ -124,12 +124,12 @@ def make_server(db: str, traces: str = "traces", examples: list[str] = (), port:
                         runs.append(record)
                 return 200, {"runs": runs[-20:]}   # ponytail: reads every trace file; index them if the folder gets large
             if (method, path) == ("POST", "/api/setup"):
-                return self.do_setup(body)
+                return self._setup(body)
             if (method, path) == ("POST", "/api/ask"):
-                return self.do_ask(body)
+                return self._ask(body)
             return 404, {"error": "Not found"}
 
-        def do_setup(self, body):
+        def _setup(self, body):
             provider, name, key = body.get("provider"), body.get("model"), body.get("key")
             if provider not in PROVIDERS:
                 return 400, {"error": "Unknown provider"}
@@ -144,7 +144,7 @@ def make_server(db: str, traces: str = "traces", examples: list[str] = (), port:
                 return 400, {"error": f"Could not create the model: {type(e).__name__}"}
             return 200, {"ok": True}
 
-        def do_ask(self, body):
+        def _ask(self, body):
             with lock:
                 model, provider, name = state["model"], state["provider"], state["model_name"]
             if model is None:
