@@ -119,33 +119,31 @@ The seed must also make plausible wrong queries give a different result from the
 
 ## Graph
 
-State: `question, schema, sql, expects_single_value, columns, rows, truncated, error, attempts, clarification, choices, answer, status`.
+State: `question, schema, sql, expects_single_value, columns, rows, truncated, error, attempts, clarification, choices, checked, answer, status`.
 
 ```
-load_schema → generate_sql ─┬─ unclear ──────────────→ END   (status: clarification)
+load_schema → generate_sql ─┬─ question back ────────→ END   (status: clarification)
+                            ├─ neither SQL nor question → END (status: failed)
                             └─ sql → execute_sql ─┬─ error, attempts < 2 → generate_sql
                                                   ├─ error, attempts = 2 → END (status: failed)
-                                                  ├─ no rows ───────────→ END (status: empty)
-                                                  ├─ wrong shape ───────→ END (status: mismatch)
-                                                  ├─ one row, all NULL ─→ END (status: no_value)
-                                                  └─ otherwise → answer → END (status: answered)
+                                                  └─ ok → check_result ─┬─ no rows ──────────→ END (status: empty)
+                                                                        ├─ wrong shape ──────→ END (status: mismatch)
+                                                                        ├─ one row, all NULL → END (status: no_value)
+                                                                        └─ otherwise → answer → END (status: answered)
 ```
-load_schema → generate_sql ─┬─ unclear ──────────────→ END   (status: clarification)
-                            └─ sql → execute_sql ─┬─ error, attempts < 2 → generate_sql
-                                                  ├─ error, attempts = 2 → END (status: failed)
-                                                  ├─ no rows ───────────→ END (status: empty)
-                                                  └─ rows → answer ─────→ END (status: answered)
-```
+
+Five nodes: `load_schema`, `generate_sql`, `execute_sql`, `check_result`, `answer`. The result checks are their own node **(call)** so that a stopped run shows as its own step in the trace; when nothing is wrong that step records `checked: True`.
 
 - **generate_sql**: one model call with the schema and question. Structured output: either `sql` plus `expects_single_value` (true when the question asks for one value, such as one overall average or one count), or `clarification` plus 2 to 3 `choices`. Each choice is a complete question that can be asked as-is. On a retry the previous SQL and its error are included.
-  Three rules are part of this prompt **(call, from the independent review)**:
+  Decided by the owner: a question back always wins. If the reply contains a clarification, the run ends as `clarification` even when the reply also contains SQL; that SQL is dropped and never runs, and nothing executes until the person answers. A reply with neither SQL nor a question ends as `failed`. **(call)**
+  These rules are part of this prompt **(call, from the independent review)**:
   - Ask for clarification when the answer depends on something neither the question nor the database states, such as a pass mark, what "current" means, or which of two people with the same name.
   - Every choice keeps all conditions of the original question and fills in only the missing detail.
   - Do counting, averaging, minimum and maximum inside the SQL, and add no `LIMIT` the question did not ask for.
   - Give every output column a plain descriptive name.
 - **execute_sql**: guard, then run. A guard rejection and a database error are treated the same: both set `error` and count as a failed attempt.
 - **Retry**: exactly one. Two attempts in total, never a third.
-- **failed**: the answer says the question could not be answered and gives the last error. No invented answer.
+- **failed**: the answer is "The question could not be answered. Last error: <error>". No invented answer. Also used when the model returns neither SQL nor a question, or an empty answer.
 - **Result checks**, decided by the owner. They run in this order after a successful query, are plain code with no model call, and each ends the run with a fixed, accurate message:
   - **empty**: no rows. Message: "Nothing matched."
   - **mismatch**: `expects_single_value` is true but the result is not exactly one row with one column. Message, for example: "The question asks for a single value, but the query returned 5 rows." The model is not asked to pick one. No retry. The trace records what was expected, what came back, and the rows.
@@ -191,6 +189,7 @@ CLI:
 
 - `python -m agent.cli "question"` prints the answer and the run id. `--db <path>` selects the database. The answer is the model's sentence, as decided by the owner; the SQL and rows are in the trace, not printed beside the answer.
 - `python -m agent.cli --trace <run_id>` prints that run step by step.
+- Exit codes **(call)**: 0 normally, including "Nothing matched", "No value is available" and a clarification; 1 when the last run ended `failed`, `mismatch` or `error`; 2 for a usage problem, a missing database, a model that could not be created, or an unknown run id.
 
 ## Tests
 
@@ -207,7 +206,7 @@ No network in the default test run.
 - **Swapped-answer demonstration**: the fake model returns the correct SQL but the answer "Grade: 78. Class average: 95." The test asserts the labelled check fails.
 - **Wrong-SQL demonstration**: the fake model returns `ORDER BY grade DESC LIMIT 1` for the above-average question. The test asserts the known-answer check reports "expected 3 rows, got 1" and that the trace's `generate_sql` step contains the faulty SQL.
 - **Key safety**: run with a recognisable fake key; assert it appears in no trace file and no log output.
-- **SQL generation (live, opt-in)** **(call)**: about 6 known-answer questions, each with expected rows by field and expected values in the answer, run against a real model. The comparison is on the returned rows and the answer text, not the SQL text. One question asks for two numbers at once and, decided by the owner, asks for a labelled answer: "What is Arta's grade in Databases in Fall 2025, and what is the class average? Answer with two labels: grade and class average." The rows must give grade 95 and average 78.0, each in its own field. The answer text must have 95 directly after the label "grade" and 78 directly after the label "class average" (only punctuation or spaces between label and number, case ignored). "Grade: 78, class average: 95" fails. This labelled check exists for this one question only. Skipped automatically when no provider is configured. This is the test that catches a prompt regression. Two of the questions test the clarification rules: "How many students passed Databases in Fall 2025?" must come back as a clarification, and for "Who scored at least 90 in Databases?" every returned choice must still contain the 90.
+- **SQL generation (live, opt-in)** **(call)**: about 6 known-answer questions, each with expected rows by field and expected values in the answer, run against a real model. The comparison is on the returned rows and the answer text, not the SQL text. One question asks for two numbers at once and, decided by the owner, asks for a labelled answer: "What is Arta's grade in Databases in Fall 2025, and what is the class average? Answer with two labels: grade and class average." The rows must give grade 95 and average 78.0, each in its own field. The answer text must have 95 directly after the label "grade" and 78 directly after the label "class average" (only punctuation or spaces between label and number, case ignored). "Grade: 78, class average: 95" fails. This labelled check exists for this one question only. Skipped automatically when no provider is configured. This is the test that catches a prompt regression. Two of the questions test the clarification rules: "How many students passed Databases in Fall 2025?" must come back as a clarification, and for "Who scored at least 90 in Databases?" every returned choice must still contain the 90. For that second question an answer across both semesters (Arta, Gent, Hana) is also accepted, because not asking back is a reasonable reading. **(call)**
 - **Second database**: see milestone 4.
 
 ## Milestones
