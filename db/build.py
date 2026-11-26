@@ -1,5 +1,6 @@
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
@@ -7,10 +8,9 @@ ROOT = Path(__file__).parent.parent
 
 def build(schema_path, seed_path, db_path):
     Path(db_path).unlink(missing_ok=True)
-    conn = sqlite3.connect(db_path)
-    for path in (schema_path, seed_path):
-        conn.executescript(Path(path).read_text())
-    conn.close()
+    with closing(sqlite3.connect(db_path)) as conn:
+        for path in (schema_path, seed_path):
+            conn.executescript(Path(path).read_text())
 
 
 if __name__ == "__main__":

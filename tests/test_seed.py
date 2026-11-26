@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,8 @@ ROOT = Path(__file__).parent.parent
 
 
 def rows(db_path, sql):
-    return sqlite3.connect(db_path).execute(sql).fetchall()
+    with closing(sqlite3.connect(db_path)) as conn:
+        return conn.execute(sql).fetchall()
 
 
 CLASS = """FROM enrollments e
@@ -58,7 +60,10 @@ def test_totals(db_path):
     assert rows(db_path, "SELECT COUNT(*), COUNT(DISTINCT name) FROM students") == [(8, 8)]
 
 def test_constraints(db_path):
-    conn = sqlite3.connect(db_path)
+    with closing(sqlite3.connect(db_path)) as conn:
+        _check_constraints(conn)
+
+def _check_constraints(conn):
     for bad in ("INSERT INTO students(name) VALUES (NULL)",
                 "INSERT INTO teachers(name) VALUES (NULL)",
                 "INSERT INTO enrollments(student_id, offering_id, grade) VALUES (1, 6, 101)",
