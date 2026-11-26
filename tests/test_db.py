@@ -1,4 +1,5 @@
 import sqlite3
+import time
 from contextlib import closing
 
 import pytest
@@ -115,3 +116,11 @@ def test_schema_truncates_long_values(tmp_path):
     rw.commit(); rw.close()
     with closing(connect(str(path))) as c:
         assert len(get_schema(c)) < 1000
+
+
+def test_time_limit_does_not_outlive_query(conn, monkeypatch):
+    monkeypatch.setattr("agent.db.TIMEOUT_SECONDS", 0.05)
+    run_query(conn, "SELECT 1")
+    time.sleep(0.1)
+    sql = "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x < 200000) SELECT count(*) FROM n"
+    assert conn.execute(sql).fetchall() == [(200000,)]

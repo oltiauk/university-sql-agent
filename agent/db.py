@@ -38,6 +38,9 @@ def run_query(conn: sqlite3.Connection, sql: str) -> tuple[list[str], list[tuple
     check_sql(sql)
     deadline = time.monotonic() + TIMEOUT_SECONDS
     conn.set_progress_handler(lambda: time.monotonic() > deadline, 10_000)
-    cur = conn.execute(sql)
-    rows = cur.fetchmany(MAX_ROWS + 1)
+    try:
+        cur = conn.execute(sql)
+        rows = cur.fetchmany(MAX_ROWS + 1)
+    finally:
+        conn.set_progress_handler(None, 0)
     return [d[0] for d in cur.description], rows[:MAX_ROWS], len(rows) > MAX_ROWS
