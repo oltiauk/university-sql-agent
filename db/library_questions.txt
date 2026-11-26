@@ -1,0 +1,3 @@
+Which books are currently on loan?
+Who has Dune right now?
+Which books has nobody borrowed?

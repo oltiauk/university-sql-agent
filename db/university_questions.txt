@@ -1,0 +1,4 @@
+Which students scored above the class average in Databases in Fall 2025?
+How many students passed Databases in Fall 2025?
+Which students were enrolled in Databases in Spring 2024?
+What is each teacher's email address?
