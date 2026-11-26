@@ -8,7 +8,7 @@
 <style>
 *{box-sizing:border-box}
 body{margin:0;padding:28px 24px 40px;background:#F7F9FC;color:#1B2333;font-family:Inter,system-ui,sans-serif;font-size:14px;line-height:1.5}
-button,input{font-family:inherit}
+button,input,select{font-family:inherit}
 button{cursor:pointer}
 button:focus-visible{outline:2px solid #2F6BFF;outline-offset:2px}
 input:focus{outline:none}
@@ -27,6 +27,14 @@ h1,h2,p,ol{margin:0}
 .orb{width:24px;height:24px;border-radius:999px;background:radial-gradient(circle at 62% 38%,#FFC83A 0%,#FF8A2A 34%,#FF5A4E 62%,#FFD9D2 100%);box-shadow:0 4px 12px rgba(255,120,60,.28)}
 .body{display:flex;flex-direction:column;gap:10px;min-width:0}
 .answer{padding-top:1px;font-size:15px;text-wrap:pretty}
+.working-dots{display:inline-block}
+@media (prefers-reduced-motion: no-preference) {
+  .working-dots{animation:working-dots 1.4s steps(3,end) infinite}
+  @keyframes working-dots {
+    0% { clip-path:inset(0 100% 0 0) }
+    75%,100% { clip-path:inset(0 0% 0 0) }
+  }
+}
 .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .choice{min-height:36px;padding:7px 16px;font-size:14px;text-align:left;color:#1B2333;background:#FFFFFF;border:1px solid #DCE4F0;border-radius:999px;box-shadow:0 4px 14px rgba(40,80,150,.06)}
 .own{display:flex;align-items:center;gap:6px;height:36px;margin:0;padding:0 4px 0 16px;background:#F4F7FB;border-radius:999px}
@@ -74,7 +82,7 @@ button.tag{border:0;line-height:inherit}
 /* start screen, from docs/design/start-screen.html; body gets .start-view while it shows, so no chat rule changes */
 .start-view{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px 16px}
 .start-view .page{width:100%}
-.start-view input:focus-visible{outline:2px solid #2F6BFF;outline-offset:2px}
+.start-view input:focus-visible,.start-view select:focus-visible{outline:2px solid #2F6BFF;outline-offset:2px}
 .start-view .card{width:100%;max-width:380px;display:flex;flex-direction:column;gap:20px;padding:32px 28px 28px}
 .start-view .top{display:flex;flex-direction:column;align-items:center;gap:18px}
 .start-view .orb{width:64px;height:64px;box-shadow:0 10px 30px rgba(255,120,60,.3)}
@@ -84,7 +92,7 @@ button.tag{border:0;line-height:inherit}
 .start-view .switch button[aria-pressed="true"]{background:#FFFFFF;box-shadow:0 2px 8px rgba(40,80,150,.14)}
 .start-view .field{display:flex;flex-direction:column;gap:8px}
 .start-view .label{font-size:13px;font-weight:500}
-.start-view .field input{height:42px;padding:0 16px;font-size:14px;color:#1B2333;background:#F4F7FB;border:0;border-radius:16px}
+.start-view .field input,.start-view .field select{height:42px;padding:0 16px;font-size:14px;color:#1B2333;background:#F4F7FB;border:0;border-radius:16px}
 .start-view .note{font-size:12px;color:#5B6676}
 .start-view .models{display:flex;flex-direction:column;gap:6px}
 .start-view .models button{display:flex;align-items:center;justify-content:space-between;height:38px;padding:0 16px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#1B2333;background:#F4F7FB;border:0;border-radius:14px}
@@ -98,6 +106,9 @@ button.tag{border:0;line-height:inherit}
 <body>
 <div class="page" id="app"></div>
 
+<script id="model-presets" type="application/json">
+{"openai":["gpt-6-luna","gpt-5.4-mini"],"anthropic":["claude-haiku-5-5","claude-sonnet-5-5"]}
+</script>
 <script>
 (function () {
 var AMBER = { bg: '#FFF3D6', fg: '#6B4A00' }, RED = { bg: '#FFEEE4', fg: '#8F3608' };
@@ -113,6 +124,7 @@ var LABELS = { load_schema: 'Read the tables', generate_sql: 'Write the SQL', ex
   check_result: 'Check the result', answer: 'Write the answer' };
 
 var NAMES = { anthropic: 'Claude', openai: 'OpenAI', ollama: 'Ollama' };
+var modelPresets = JSON.parse(document.getElementById('model-presets').textContent);
 
 // info: /api/state; turns: [{ record, bubble, error, from }]; sel: index of the turn whose trace is open
 // setup: the start screen while it shows, else null: { p: provider id, ollama: null while asking, pick, busy }
@@ -154,7 +166,11 @@ function turnHtml(t, i) {
   var h = '<section class="turn" data-turn="' + i + '">';
   h += '<h2 class="bubble">' + esc(t.bubble) + '</h2>';
   h += '<div class="reply"><span class="orb" aria-hidden="true"></span><div class="body">';
-  h += '<p class="answer">' + esc(r ? (r.answer == null ? '' : r.answer) : (t.error || 'Working…')) + '</p>';
+  if (!r && !t.error) {
+    h += '<p class="answer" role="status">Working<span class="working-dots" aria-hidden="true">...</span></p>';
+  } else {
+    h += '<p class="answer">' + esc(r ? (r.answer == null ? '' : r.answer) : t.error) + '</p>';
+  }
   if (r && r.status === 'clarification' && !followedUp(i)) {
     h += '<div class="row">';
     arr(lastOut(r).choices).forEach(function (c, n) {
@@ -224,7 +240,7 @@ function stepView(s, i, rec) {
     return { label: label, dot: 'bad', html: '<p class="mono err">' + esc(o.error) + '</p>' };
   }
   if (node === 'check_result') {
-    return o.checked ? { label: label, dot: '', html: text('Fits the question.') } : { label: label, dot: 'warn', html: text(o.answer) };
+    return o.checked ? { label: label, dot: '', html: text('Result shape checked.') } : { label: label, dot: 'warn', html: text(o.answer) };
   }
   if (node === 'answer') return { label: label, dot: o.status === 'failed' ? 'bad' : '', html: text(o.answer) };
   return { label: label, dot: '', html: '' };
@@ -342,9 +358,14 @@ function setupHtml() {
     }
     h += '</div>';
   } else {
-    var model = s.p === info.default_provider && info.default_model ? info.default_model : '';
+    var current = s.p === info.provider && info.model;
+    var configured = s.p === info.default_provider && info.default_model;
+    var models = new Set([current, configured].filter(Boolean).concat(modelPresets[s.p]));
     h += '<div class="field"><label class="label" for="setup-model">Model</label>' +
-      '<input id="setup-model" type="text" placeholder="Model name" autocomplete="off" value="' + esc(model) + '"></div>';
+      '<select id="setup-model">';
+    models.forEach(function (m) { h += '<option>' + esc(m) + '</option>'; });
+    h += '<option value="">Other model…</option></select>' +
+      '<input id="custom-model" aria-label="Model name" placeholder="Model name" autocomplete="off" hidden></div>';
     h += prov.key_in_environment
       ? '<div class="field"><span class="label">API key</span><p class="note">Found in your environment. Nothing to type.</p></div>'
       : '<div class="field"><label class="label" for="setup-key">API key</label><input id="setup-key" type="password" autocomplete="new-password">' +
@@ -356,13 +377,17 @@ function setupHtml() {
   return h + '</main>';
 }
 
+function hostedModelName() {
+  return document.getElementById('setup-model').value || document.getElementById('custom-model').value.trim();
+}
+
 // Start needs a model, and a key where the provider needs one and the environment has none
 function updateStart() {
   var s = state.setup, ok;
   if (s.p === 'ollama') ok = !!(s.ollama && s.ollama.running && s.ollama.models.length);
   else {
     var k = document.getElementById('setup-key');
-    ok = !!document.getElementById('setup-model').value.trim() && (!k || !!k.value.trim());
+    ok = !!hostedModelName() && (!k || !!k.value.trim());
   }
   app.querySelector('.start').disabled = s.busy || !ok;
 }
@@ -380,13 +405,14 @@ function openSetup(p) {
 }
 
 function defaultProvider() {
+  if (own(NAMES, state.info.provider)) return state.info.provider;
   return own(NAMES, state.info.default_provider) ? state.info.default_provider : 'anthropic';
 }
 
 // the key is read from its input here, sent once in the body, and the input is cleared on any answer
 function start() {
   var s = state.setup, k = document.getElementById('setup-key'), err = document.getElementById('setup-err');
-  var model = s.p === 'ollama' ? s.ollama.models[s.pick] : document.getElementById('setup-model').value.trim();
+  var model = s.p === 'ollama' ? s.ollama.models[s.pick] : hostedModelName();
   var fail = function (msg) { s.busy = false; err.textContent = msg; err.hidden = false; updateStart(); };
   s.busy = true;
   err.hidden = true;
@@ -508,6 +534,14 @@ app.addEventListener('click', function (ev) {
 });
 
 app.addEventListener('input', function () { if (state.setup) updateStart(); });
+
+app.addEventListener('change', function (ev) {
+  if (ev.target.id !== 'setup-model') return;
+  var custom = document.getElementById('custom-model');
+  custom.hidden = !!ev.target.value;
+  if (!custom.hidden) custom.focus();
+  updateStart();
+});
 
 app.addEventListener('submit', function (ev) {
   ev.preventDefault();

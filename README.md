@@ -18,7 +18,7 @@ cp .env.example .env
 Open `.env` and fill in three values:
 
 - `LLM_PROVIDER`: `openai`, `anthropic` or `ollama`.
-- `LLM_MODEL`: the model name. No model name is written into the code; you must set one. The eight live examples in `examples/` were produced with provider `openai` and model `gpt-6-luna`; the three scripted ones use a fake model.
+- `LLM_MODEL`: the model name for the CLI and live tests. In the web UI this setting is optional. The eight live examples in `examples/` were produced with provider `openai` and model `gpt-6-luna`; the three scripted ones use a fake model.
 - The provider's key variable: `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. Ollama runs locally and needs no key.
 
 `.env` is listed in `.gitignore`, so the key is not committed.
@@ -53,7 +53,9 @@ python -m agent.server --db library.db --examples db/library_questions.txt
 
 `--examples` names a text file with one question per line; each one becomes a button above the question box. `--db` and `--traces` work as in the command line. The server listens on 127.0.0.1 only.
 
-If `.env` names a provider, a model and (for OpenAI or Anthropic) a key, the page opens straight on the chat. Otherwise it opens on a setup screen that asks which AI should answer: Claude, OpenAI or Ollama. For Claude and OpenAI it asks for the model name and the API key; the key field is replaced by a note when the provider's key variable is already set in the environment. For Ollama it lists the models installed on this computer and needs no key. A typed key is sent once to the local server and kept in its memory until you stop it. It is not written to `.env`, a trace or the browser's storage. The model name under the question box opens the setup screen again.
+If `.env` names a provider, a model and (for OpenAI or Anthropic) a key, the page opens straight on the chat. Otherwise, choose a provider on the setup screen. For OpenAI and Claude, a model is already selected. Enter a key if prompted and click **Start**. The dropdown includes the configured model and a short list of presets. Choose **Other model…** to enter another model available to your account. For Ollama, pick from the installed local models. Ollama needs no key.
+
+A typed key is sent once to the local server and kept in its memory until you stop it. It is not written to `.env`, a trace or the browser's storage. Click the model name under the question box to reopen setup with the active model selected.
 
 Every answer on the page is a saved run, and its trace panel shows that run's trace file. On opening, the page shows the last 20 runs for the database. A question back shows its choices as buttons: clicking one asks it as a new question, and typed words are added to the original in brackets, as in the command line.
 
@@ -112,7 +114,9 @@ Comments written inside a `CREATE TABLE` statement travel with the schema text, 
 
 ## Tracing
 
-Every run writes one JSON file to `traces/<run id>.json` (git-ignored). The run id is the start time in UTC plus six random hex characters. A trace holds the question, database path, provider and model name, final status and answer, and one entry per node in the order it ran, with its duration and what it added to the state: the schema text, the SQL, the error, the columns and rows, the clarification and choices, the answer. The API key never appears in a trace: our code never reads it (the provider package reads it from the environment), so it never enters the graph state, and `tests/test_key_safety.py` checks this.
+Every run writes one JSON file to `traces/<run id>.json` (git-ignored). The run id is the start time in UTC plus six random hex characters. A trace holds the question, database path, provider and model name, final status and answer, and one entry per node in the order it ran, with its duration and what it added to the state: the schema text, the SQL, the error, the columns and rows, the clarification and choices, the answer. “Result shape checked” means the result passed the row and column checks that apply to that question. A query can still average the wrong group and return the expected number of values.
+
+The provider can read its API key from the environment. If you enter a key in the web UI, the local server passes it to the model client in memory. The graph receives the configured model. Its state and saved traces exclude the credential.
 
 To open a trace of your own, use the last two commands in Quick start. The saved example traces can also be read on GitHub without a key or anything installed: [examples/README.md](examples/README.md) lists twelve runs: eight from a real model, three scripted, and one real wrong answer kept as recorded. The scripted ones use a fake model because a real model does not fail on demand. To print one locally:
 

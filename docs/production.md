@@ -1,6 +1,6 @@
 # Production notes
 
-What it would take to run this agent as a production service rather than a command-line homework. Each section says what the code already does, then lists each gap and what to add, in the order you would do it.
+The agent runs locally through a command line or a web UI. These notes describe what it would take to serve multiple users in production.
 
 ## Reliability
 
@@ -15,7 +15,7 @@ What it would take to run this agent as a production service rather than a comma
 
 - The schema is read on every question and all of it goes into every SQL prompt. Cache it per database and rebuild it when the schema changes.
 - A database with hundreds of tables would exceed the model's context. Choose the relevant tables first (by matching the question against table and column names, or a list kept per database) and send only those.
-- The only entry point is the command line, one process per question, on a local SQLite file. Put the graph behind a small service and move to a server database (see Security for its access).
+- The CLI and the local web server both query a SQLite file. The web server shares one configured model across requests. For a multi-user service, isolate model settings per user and move query workloads to a server database when needed.
 
 ## Monitoring and tracing
 
@@ -28,13 +28,13 @@ What it would take to run this agent as a production service rather than a comma
 
 ## Security
 
-**Already there.** Read-only at two layers: the SQL check accepts one `SELECT` or `WITH` statement, and the SQLite file is opened read-only. Our code never reads the API key; the provider package reads it from the environment, so it never enters graph state or a trace.
+**Already there.** The SQL check accepts one `SELECT` or `WITH` statement, and the agent opens the SQLite file read-only. The web server listens on the loopback interface. Providers can use an environment key. If a user types a key during web setup, the server passes it to the model client in memory and keeps it out of graph state and traces.
 
 - A server database has no read-only file mode. Connect through a role that can only read, sees only views made for this purpose without sensitive columns, and has a statement timeout set in the database.
 - Anyone who can ask can read every table the connection can read. Add authentication and scope what each user may query and which traces they may read.
 - Text stored in the database reaches the model in the sample rows and result rows; if untrusted people can write it, it is a prompt-injection path that can steer the SQL or the sentence. Tell the model that database text is data, not instructions; this reduces the risk but does not remove it, so the trace stays the place to audit a suspicious answer.
-- The key lives in a local `.env` file. Move it to a secret manager.
-- There is no limit on question length or request rate. Add both, per user.
+- Store deployment credentials in a secret manager. Local development supports an environment variable, a `.env` file or a key entered in web setup.
+- The web server caps each question at 2,000 characters, including the combined text of a clarification. The CLI has no corresponding cap. Add per-user request rate limits before exposing the service to multiple users.
 
 ## Deployment
 
