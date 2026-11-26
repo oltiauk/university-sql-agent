@@ -1,0 +1,38 @@
+{
+  "scripted-retry": {
+    "id": "scripted-retry",
+    "run_id": "20261126-060920-dd48ff",
+    "title": "A query that fails and is corrected",
+    "database": "university.db",
+    "command": "python examples/make_examples.py",
+    "question": "How many students are there?",
+    "status": "answered",
+    "answer": "There are 8 students.",
+    "sql": "SELECT COUNT(*) AS student_count FROM students",
+    "scripted": true
+  },
+  "scripted-failed": {
+    "id": "scripted-failed",
+    "run_id": "20261126-060920-2c4bca",
+    "title": "A query that fails twice",
+    "database": "university.db",
+    "command": "python examples/make_examples.py",
+    "question": "How many students are there?",
+    "status": "failed",
+    "answer": "The question could not be answered. Last error: no such table: pupils",
+    "sql": "SELECT COUNT(*) AS n FROM pupils",
+    "scripted": true
+  },
+  "scripted-mismatch": {
+    "id": "scripted-mismatch",
+    "run_id": "20261126-060920-5c1420",
+    "title": "One value asked for, five returned",
+    "database": "university.db",
+    "command": "python examples/make_examples.py",
+    "question": "What is the average grade in Databases in Fall 2025?",
+    "status": "mismatch",
+    "answer": "The question asks for a single value, but the query returned 5 rows.",
+    "sql": "SELECT e.grade AS grade FROM enrollments e JOIN offerings o ON o.id = e.offering_id\nJOIN courses c ON c.id = o.course_id WHERE c.title = 'Databases' AND o.semester = '2025-Fall'",
+    "scripted": true
+  }
+}

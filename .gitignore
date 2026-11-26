@@ -2,5 +2,5 @@
 __pycache__/
 *.db
 .env
-traces/
+/traces/
 .pytest_cache/

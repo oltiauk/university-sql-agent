@@ -1,0 +1,51 @@
+import json
+
+from agent.cli import main
+from examples.make_examples import make
+from tests.fakes import FakeModel
+
+
+def index(tmp_path):
+    return json.loads((tmp_path / "examples.json").read_text())
+
+def test_scripted_examples_are_reproducible(tmp_path):
+    first = make(live=False, out_dir=str(tmp_path))
+    second = make(live=False, out_dir=str(tmp_path))
+    assert [e["id"] for e in first] == ["scripted-retry", "scripted-failed", "scripted-mismatch"]
+    assert [e["status"] for e in second] == ["answered", "failed", "mismatch"]
+    files = sorted(p.stem for p in (tmp_path / "traces").glob("*.json"))
+    assert files == sorted(e["run_id"] for e in second)          # the first run's three traces were replaced
+    assert {e["run_id"] for e in first}.isdisjoint(files)
+
+def test_example_traces_open_by_run_id(tmp_path, capsys):
+    entries = make(live=False, out_dir=str(tmp_path))
+    code = main(["--trace", entries[0]["run_id"], "--traces", str(tmp_path / "traces")])
+    assert code == 0 and "generate_sql" in capsys.readouterr().out
+
+def test_scripted_traces_show_what_they_claim(tmp_path):
+    make(live=False, out_dir=str(tmp_path))
+    load = lambda name: json.loads((tmp_path / "traces" / f"{index(tmp_path)[name]['run_id']}.json").read_text())
+    retry = load("scripted-retry")
+    assert [s["node"] for s in retry["steps"]].count("generate_sql") == 2 and retry["status"] == "answered"
+    assert load("scripted-failed")["answer"].startswith("The question could not be answered.")
+    assert load("scripted-mismatch")["answer"] == "The question asks for a single value, but the query returned 5 rows."
+
+def test_readme_lists_every_example_and_labels_scripted_ones(tmp_path):
+    make(live=False, out_dir=str(tmp_path))
+    text = (tmp_path / "README.md").read_text()
+    for entry in index(tmp_path).values():
+        assert f"traces/{entry['run_id']}.json" in text and (tmp_path / "traces" / f"{entry['run_id']}.json").exists()
+    assert text.count("Scripted: produced with a fake model") == 3
+    assert "--trace" in text and "--traces examples/traces" in text      # how to open one by its run id
+
+def test_live_examples_run_with_an_injected_model(tmp_path):
+    replies = [{"sql": "SELECT 1 AS one"}, "one"] * 8
+    entries = make(live=True, model=FakeModel(replies), out_dir=str(tmp_path))
+    assert len(entries) == 11 and len(list((tmp_path / "traces").glob("*.json"))) == 11
+    library = index(tmp_path)["library"]
+    assert json.loads((tmp_path / "traces" / f"{library['run_id']}.json").read_text())["database"] == "library.db"
+
+def test_examples_have_no_absolute_paths(tmp_path):
+    make(live=True, model=FakeModel([{"sql": "SELECT 1 AS one"}, "one"] * 8), out_dir=str(tmp_path))
+    for path in list((tmp_path / "traces").glob("*.json")) + [tmp_path / "README.md", tmp_path / "examples.json"]:
+        assert "/Users/" not in path.read_text() and str(tmp_path) not in path.read_text()
