@@ -1,0 +1,196 @@
+{
+  "title": "University DB · LangGraph QA agent",
+  "subtitle": "Spec decisions · started 2026-11-25",
+  "summary": [
+    "One read-only query per question, answer from its rows, one retry when the SQL fails.",
+    "Wrong-but-valid SQL is caught by the trace and by known-answer tests on the five-student class (Arta, Blerim, Dren above the 78.0 average). No model check node for now.",
+    "Model-agnostic: Claude, OpenAI or a local Ollama model. Key masked, session only, skipped if already set, never in logs or traces. Picker lives in the UI milestone; the CLI uses environment variables.",
+    "Unclear question: ask back with suggested readings and run no SQL. UI offers clickable choices plus a text input.",
+    "Own tracing, one saved record per run (my call, from your description).",
+    "Milestones: database, agent with tracing, problem handling, proof and paperwork, optional UI."
+  ],
+  "decisions": [
+    {
+      "id": "q1",
+      "short": "Multi-step reasoning",
+      "title": "How many SQL queries may one question run?",
+      "question": "The PDF requires 'multi-step reasoning'. You said the app runs one SQL query only. Which shape should the graph have?",
+      "context": [
+        "PDF section 2: agent must support aggregations, joins, filtering and multi-step reasoning",
+        "Evaluation lists 'ability to handle complex questions' and 'quality of LangGraph usage'",
+        "Notes: 'the solution does not need to be large', 'must be explainable'"
+      ],
+      "visual": "<div class=\"row center\"><div class=\"step\">Question</div><div class=\"arrow\"></div><div class=\"step on\">SQL × ?</div><div class=\"arrow\"></div><div class=\"step\">Rows</div><div class=\"arrow\"></div><div class=\"step\">Answer</div></div>",
+      "options": [
+        {
+          "id": "a",
+          "label": "One query, retry loop",
+          "detail": "One SELECT per question (subqueries and CTEs allowed). The graph loops back to regenerate only when the SQL fails. Multi-step = the visible node path. Smallest and easiest to explain; weakest claim on 'multi-step reasoning'.",
+          "visual": "<div class=\"col center\"><div class=\"row center\"><div class=\"step on\">Generate</div><div class=\"arrow\"></div><div class=\"step\">Run</div><div class=\"arrow\"></div><div class=\"step\">Answer</div></div><span class=\"lbl warn\">on error: back to Generate</span></div>"
+        },
+        {
+          "id": "b",
+          "label": "Query loop, capped",
+          "detail": "After each result the model decides: answer now, or run another query using what it just learned (max 3). Same nodes as A plus one decision edge. Every query is still read-only and traced. Real multi-step, about one extra node.",
+          "visual": "<div class=\"col center\"><div class=\"row center\"><div class=\"step on\">Generate</div><div class=\"arrow\"></div><div class=\"step\">Run</div><div class=\"arrow\"></div><div class=\"step on\">Enough?</div><div class=\"arrow\"></div><div class=\"step\">Answer</div></div><span class=\"lbl blue\">not enough: next query (max 3)</span></div>"
+        },
+        {
+          "id": "c",
+          "label": "Plan first, then run",
+          "detail": "A planner node splits the question into sub-questions up front, each becomes its own query, a final node combines them. Most impressive on paper, most code, hardest to debug and defend.",
+          "visual": "<div class=\"row center\"><div class=\"step on\">Plan</div><div class=\"arrow\"></div><div class=\"col\"><div class=\"step\">Q1</div><div class=\"step\">Q2</div><div class=\"step\">Q3</div></div><div class=\"arrow\"></div><div class=\"step\">Combine</div></div>"
+        }
+      ],
+      "recommendation": "b",
+      "why": "It is the cheapest design that honestly satisfies 'multi-step reasoning': one extra conditional edge on the same loop you already need for retries. Most questions still finish in one query, and the trace shows exactly why a second one ran.",
+      "dependsOn": [],
+      "status": "answered",
+      "answer": {
+        "option": "a",
+        "note": "yeah lets go with the first one read only query, answer from the results and if the sql fails lets try once more",
+        "summary": "One read-only query per question, answer from its rows, exactly one retry when the SQL fails.",
+        "source": "terminal",
+        "at": "2026-11-25T00:00:00Z"
+      },
+      "staleReason": ""
+    },
+    {
+      "id": "q2",
+      "short": "Wrong but valid SQL",
+      "title": "What catches SQL that runs fine but answers the wrong question?",
+      "question": "Asked for everyone above the class average, the model writes ORDER BY grade DESC LIMIT 1. It runs, returns one row, nothing fails, so the retry never fires. What should catch this?",
+      "context": [
+        "Made-up class: Arta 95, Blerim 88, Dren 82, Era 70, Fatos 55. Average 78.0",
+        "Wrong SQL returns Arta only. Right SQL returns Arta, Blerim, Dren",
+        "PDF section 5: detect and handle incorrect SQL and inconsistent results, and demonstrate how you identify and debug wrong output",
+        "The retry you chose in Q1 only fires on SQL errors, so it cannot see this"
+      ],
+      "visual": "<div class=\"row center\"><div class=\"col\"><span class=\"lbl\">asked: above average (78)</span><div class=\"box\">Arta 95</div><div class=\"box\">Blerim 88</div><div class=\"box\">Dren 82</div></div><div class=\"arrow\"></div><div class=\"col\"><span class=\"lbl warn\">got: LIMIT 1</span><div class=\"box\">Arta 95</div><div class=\"box dash\">missing</div><div class=\"box dash\">missing</div></div></div>",
+      "options": [
+        {
+          "id": "a",
+          "label": "Trace + known-answer tests",
+          "detail": "Nothing catches it at run time. The trace shows the SQL with LIMIT 1 next to the question, and a small set of test questions with expected rows (this one included) fails whenever the prompt regresses. Deterministic, no extra model call.",
+          "visual": "<div class=\"col center\"><div class=\"row center\"><div class=\"step\">Generate</div><div class=\"arrow\"></div><div class=\"step\">Run</div><div class=\"arrow\"></div><div class=\"step\">Answer</div></div><div class=\"row center\"><span class=\"chip on\">trace shows LIMIT 1</span><span class=\"chip warn\">test: expected 3 rows, got 1</span></div></div>"
+        },
+        {
+          "id": "b",
+          "label": "Check node before answering",
+          "detail": "One extra node asks the model: does this SQL and its rows answer the question? If not, its reason is fed back and the single retry is spent on it. Catches some mistakes live, costs a second model call per question, and can be wrong itself.",
+          "visual": "<div class=\"col center\"><div class=\"row center\"><div class=\"step\">Generate</div><div class=\"arrow\"></div><div class=\"step\">Run</div><div class=\"arrow\"></div><div class=\"step on\">Check</div><div class=\"arrow\"></div><div class=\"step\">Answer</div></div><span class=\"lbl warn\">mismatch: back to Generate once</span></div>"
+        },
+        {
+          "id": "c",
+          "label": "Both",
+          "detail": "Check node at run time plus the known-answer tests. Most coverage, most to build and explain.",
+          "visual": "<div class=\"col center\"><div class=\"row center\"><div class=\"step\">Run</div><div class=\"arrow\"></div><div class=\"step on\">Check</div><div class=\"arrow\"></div><div class=\"step\">Answer</div></div><span class=\"chip warn\">plus known-answer tests</span></div>"
+        }
+      ],
+      "recommendation": "a",
+      "why": "The PDF asks you to demonstrate how you identify and debug wrong output, and the trace plus a failing test does that with no extra moving parts. A model grading its own SQL misses the same mistakes it makes and adds a call to every question. Add the check node later if the tests show a real pattern.",
+      "dependsOn": [
+        "q1"
+      ],
+      "status": "answered",
+      "answer": {
+        "option": "a",
+        "note": "first one. use the class u just made up we know which three students should come back so we can check that. if we only get the top student i want to trace where it went wrong and lets keep the extra model check out for now",
+        "summary": "Trace plus known-answer tests. The five-student class is the fixture: 'above average' must return Arta, Blerim, Dren. No model check node for now.",
+        "source": "terminal",
+        "at": "2026-11-25T00:00:00Z"
+      },
+      "staleReason": ""
+    },
+    {
+      "id": "q3",
+      "short": "LLM provider",
+      "title": "Which model writes the SQL?",
+      "question": "The agent needs one chat model for two calls: write the SQL, then word the answer. Which provider do you have a key for and want to defend in the interview?",
+      "context": [
+        "LangChain chat models share one interface, so the provider is one line plus an environment variable and can change later",
+        "Tests use a fake model, so they never need a key or network",
+        "The repo is public: the key lives in .env, which stays out of git"
+      ],
+      "visual": "<div class=\"row center\"><div class=\"step\">Question</div><div class=\"arrow\"></div><div class=\"step on\">Model ?</div><div class=\"arrow\"></div><div class=\"step\">SQL</div><div class=\"arrow\"></div><div class=\"step on\">Model ?</div><div class=\"arrow\"></div><div class=\"step\">Answer</div></div>",
+      "options": [
+        {
+          "id": "a",
+          "label": "Claude (Anthropic)",
+          "detail": "langchain-anthropic with ANTHROPIC_API_KEY. Model name read from an environment variable, defaulting to a small fast model.",
+          "visual": "<div class=\"col center\"><div class=\"box\">langchain-anthropic</div><span class=\"chip on\">ANTHROPIC_API_KEY</span></div>"
+        },
+        {
+          "id": "b",
+          "label": "OpenAI",
+          "detail": "langchain-openai with OPENAI_API_KEY. Same shape, different package and key.",
+          "visual": "<div class=\"col center\"><div class=\"box\">langchain-openai</div><span class=\"chip on\">OPENAI_API_KEY</span></div>"
+        },
+        {
+          "id": "c",
+          "label": "Local model (Ollama)",
+          "detail": "No key and no cost, runs offline in the interview. Smaller models write worse SQL, so expect more wrong answers on the complex questions.",
+          "visual": "<div class=\"col center\"><div class=\"box dash\">langchain-ollama</div><span class=\"chip warn\">no key, weaker SQL</span></div>"
+        }
+      ],
+      "recommendation": "a",
+      "why": "Any hosted model handles this schema; pick the one you already have a key for. I default to Claude because it needs no further setup on my side to verify, and the model name stays an environment variable so switching is a config change.",
+      "dependsOn": [],
+      "status": "answered",
+      "answer": {
+        "option": null,
+        "note": "lets be model agnostic. when someone opens the app they choose a provider, they input their api key and start asking questions. if they arleady put it dont ask them to. for ollama if they have it running just show the models they have locally and let them pick one. keep the key hidden when they type it and use it only for that session, and make sure it never shows up in the logs or the trace. lets put that in the spec for when we get to the ui",
+        "summary": "Model-agnostic. In the UI: pick a provider, enter the key (masked, session only, skipped if already set), or pick a local Ollama model from a list. The key never reaches logs or traces. Goes in the spec under the UI milestone.",
+        "source": "terminal",
+        "at": "2026-11-25T00:00:00Z",
+        "visual": "<div class=\"col center\"><div class=\"row center\"><span class=\"chip on\">Claude</span><span class=\"chip\">OpenAI</span><span class=\"chip\">Ollama</span></div><div class=\"box\">API key: ••••••••</div><div class=\"row center\"><span class=\"chip ok\">session only</span><span class=\"chip warn\">never in trace or logs</span></div></div>"
+      },
+      "staleReason": ""
+    },
+    {
+      "id": "q4",
+      "short": "Ambiguous questions",
+      "title": "What happens when the question is unclear?",
+      "question": "Someone asks 'Who is the best student?' Best by average grade, by one course, by one semester? The PDF requires handling ambiguous questions. What should the agent do?",
+      "context": [
+        "PDF section 5 names 'ambiguous user questions' as a problem the system must detect and handle",
+        "Detection costs no extra model call: the SQL-writing step returns either SQL or a note that the question is unclear",
+        "Q1 fixed the graph at one query with one retry, so this is one more exit from the same step"
+      ],
+      "visual": "<div class=\"row center\"><div class=\"step\">\"Who is the best student?\"</div><div class=\"arrow\"></div><div class=\"step on\">Unclear</div><div class=\"arrow\"></div><div class=\"step\">?</div></div>",
+      "options": [
+        {
+          "id": "a",
+          "label": "Ask back, run ends",
+          "detail": "The agent replies with a question ('Best by overall average, or in a specific course?') and runs no SQL. The user asks again with the detail. The trace records that the run ended as a clarification. No pause or resume machinery.",
+          "visual": "<div class=\"col center\"><div class=\"row center\"><div class=\"step on\">Unclear</div><div class=\"arrow\"></div><div class=\"step\">Ask back</div></div><span class=\"lbl blue\">no SQL runs, user asks again</span></div>"
+        },
+        {
+          "id": "b",
+          "label": "Assume and say so",
+          "detail": "The agent picks the most likely reading, runs it, and states the assumption in the answer ('Taking best as highest overall average: Arta'). Always gives an answer, but a wrong guess looks like a right answer.",
+          "visual": "<div class=\"col center\"><div class=\"row center\"><div class=\"step on\">Unclear</div><div class=\"arrow\"></div><div class=\"step\">Run guess</div><div class=\"arrow\"></div><div class=\"step\">Answer</div></div><span class=\"lbl warn\">assumption stated in the answer</span></div>"
+        },
+        {
+          "id": "c",
+          "label": "Pause and resume",
+          "detail": "The graph stops mid-run, waits for the user's reply, then continues the same run. Uses LangGraph's interrupt feature, which shows well, but needs saved run state and is the most code to explain.",
+          "visual": "<div class=\"col center\"><div class=\"row center\"><div class=\"step on\">Unclear</div><div class=\"arrow\"></div><div class=\"step off\">Paused</div><div class=\"arrow\"></div><div class=\"step\">Resume</div></div><span class=\"lbl\">needs saved run state</span></div>"
+        }
+      ],
+      "recommendation": "a",
+      "why": "It meets the requirement with one extra exit from a step you already have, and it never presents a guess as a fact. Pause and resume is the showier LangGraph feature but adds stored run state to a project the PDF says does not need to be large.",
+      "dependsOn": [
+        "q1"
+      ],
+      "status": "answered",
+      "answer": {
+        "option": "a",
+        "note": "correct on both assumptions. for unclear question lets go with the first option. when it comes to the ui we can give them choices they can click and also an input to type. keep this in the ui milestone and cover both paths in the tests",
+        "summary": "Ask back and end the run. The clarification carries suggested readings; in the UI they are clickable, with a text input beside them. Both follow-up paths are tested.",
+        "source": "terminal",
+        "at": "2026-11-25T00:00:00Z"
+      },
+      "staleReason": ""
+    }
+  ]
+}
