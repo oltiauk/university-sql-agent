@@ -1,0 +1,56 @@
+{
+  "run_id": "20261126-061010-2a482a",
+  "started_at": "2026-11-26T06:10:10.306237+00:00",
+  "question": "What is the average grade in Databases in Fall 2030?",
+  "database": "university.db",
+  "provider": "openai",
+  "model": "gpt-6-luna",
+  "status": "no_value",
+  "answer": "No value is available for average_grade.",
+  "steps": [
+    {
+      "node": "load_schema",
+      "at": "2026-11-26T06:10:10.307976+00:00",
+      "duration_ms": 2,
+      "output": {
+        "schema": "CREATE TABLE teachers (\n    id   INTEGER PRIMARY KEY,\n    name TEXT NOT NULL\n)\n(1, 'Lira Hoxha')\n(2, 'Besnik Krasniqi')\n(3, 'Mira Berisha')\n\nCREATE TABLE students (\n    id   INTEGER PRIMARY KEY,\n    name TEXT NOT NULL\n)\n(1, 'Arta')\n(2, 'Blerim')\n(3, 'Dren')\n\nCREATE TABLE courses (\n    id    INTEGER PRIMARY KEY,\n    code  TEXT NOT NULL UNIQUE,\n    title TEXT NOT NULL\n)\n(1, 'CS101', 'Databases')\n(2, 'CS102', 'Algorithms')\n(3, 'MA101', 'Statistics')\n\nCREATE TABLE offerings (\n    id         INTEGER PRIMARY KEY,\n    course_id  INTEGER NOT NULL REFERENCES courses(id),\n    teacher_id INTEGER NOT NULL REFERENCES teachers(id),\n    semester   TEXT NOT NULL,\n    UNIQUE (course_id, teacher_id, semester)\n)\n(1, 1, 1, '2025-Fall')\n(2, 2, 2, '2025-Fall')\n(3, 3, 3, '2025-Fall')\n\nCREATE TABLE enrollments (\n    student_id  INTEGER NOT NULL REFERENCES students(id),\n    offering_id INTEGER NOT NULL REFERENCES offerings(id),\n    grade       REAL CHECK (grade BETWEEN 0 AND 100),\n    PRIMARY KEY (student_id, offering_id)\n)\n(1, 1, 95.0)\n(2, 1, 88.0)\n(3, 1, 82.0)"
+      }
+    },
+    {
+      "node": "generate_sql",
+      "at": "2026-11-26T06:10:12.408105+00:00",
+      "duration_ms": 2100,
+      "output": {
+        "sql": "SELECT AVG(e.grade) AS average_grade\nFROM courses AS c\nJOIN offerings AS o ON o.course_id = c.id\nJOIN enrollments AS e ON e.offering_id = o.id\nWHERE c.title = 'Databases'\n  AND o.semester = '2030-Fall';",
+        "expects_single_value": true,
+        "attempts": 1
+      }
+    },
+    {
+      "node": "execute_sql",
+      "at": "2026-11-26T06:10:12.408704+00:00",
+      "duration_ms": 1,
+      "output": {
+        "columns": [
+          "average_grade"
+        ],
+        "rows": [
+          [
+            null
+          ]
+        ],
+        "truncated": false,
+        "error": ""
+      }
+    },
+    {
+      "node": "check_result",
+      "at": "2026-11-26T06:10:12.408888+00:00",
+      "duration_ms": 0,
+      "output": {
+        "status": "no_value",
+        "answer": "No value is available for average_grade."
+      }
+    }
+  ]
+}
