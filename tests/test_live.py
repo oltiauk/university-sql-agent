@@ -80,4 +80,4 @@ def test_library_on_loan(library_path, tmp_path):
     rec = run("Which books are currently on loan?", library_path, tmp_path)
     verify(rec, "answered",
            rows_problem(rec, [{"book": "Dracula"}, {"book": "Dune"}, {"book": "Emma"}], {"book": ("title", "book")}),
-           check_answer(rec["answer"], ["Dracula", "Dune", "Emma"], ["Ulysses", "Beloved", "Walden"]))
+           check_answer(rec["answer"], ["Dracula", "Dune", "Emma"], ["Ulysses", "Beloved", "Walden", "Persuasion"]))

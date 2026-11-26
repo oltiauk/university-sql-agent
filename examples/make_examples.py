@@ -105,8 +105,7 @@ def make(live: bool, model=None, out_dir="examples") -> list[dict]:
     index_path = out / "examples.json"
     index = json.loads(index_path.read_text()) if index_path.exists() else {}
     for db, schema, seed in (("university.db", "schema.sql", "seed.sql"), ("library.db", "library_schema.sql", "library_seed.sql")):
-        if not (ROOT / db).exists():
-            build(ROOT / "db" / schema, ROOT / "db" / seed, ROOT / db)
+        build(ROOT / "db" / schema, ROOT / "db" / seed, ROOT / db)
     chosen = [ex for ex in EXAMPLES if live or "replies" in ex]
     live_model = (model, "injected", "injected") if model or not live else real_model()
     entries = []
@@ -116,11 +115,14 @@ def make(live: bool, model=None, out_dir="examples") -> list[dict]:
         for ex in chosen:
             scripted = "replies" in ex
             m, provider, name = (FakeModel(ex["replies"]), "scripted", "fake") if scripted else live_model
+            record = run_traced(build_graph(m, ex["db"]), ex["question"], database=ex["db"],
+                                provider=provider, model=name, traces_dir=str(traces))
+            if record["status"] == "error":
+                (traces / f"{record['run_id']}.json").unlink()
+                raise SystemExit(f"example {ex['id']} stopped: {record['answer']}")
             old = index.get(ex["id"])
             if old:
                 (traces / f"{old['run_id']}.json").unlink(missing_ok=True)
-            record = run_traced(build_graph(m, ex["db"]), ex["question"], database=ex["db"],
-                                provider=provider, model=name, traces_dir=str(traces))
             sqls = [s["output"]["sql"] for s in record["steps"] if s["node"] == "generate_sql" and s["output"].get("sql")]
             command = ("python examples/make_examples.py" if scripted else
                        f'python -m agent.cli --db {ex["db"]} "{ex["question"]}"')
@@ -128,12 +130,13 @@ def make(live: bool, model=None, out_dir="examples") -> list[dict]:
                                                   command=command, question=ex["question"], status=record["status"],
                                                   answer=record["answer"], sql=sqls[-1] if sqls else None, scripted=scripted)
             entries.append(entry)
+            index_path.write_text(json.dumps(index, indent=2) + "\n")
     finally:
         os.chdir(cwd)
-    index_path.write_text(json.dumps(index, indent=2) + "\n")
-    (out / "README.md").write_text(readme(index))
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "README.md").write_text(readme(index))
     return entries
 
 
 if __name__ == "__main__":
-    make(live="--live" in sys.argv[1:])
+    make(live="--live" in sys.argv[1:], out_dir=ROOT / "examples")

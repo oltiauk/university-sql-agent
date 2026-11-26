@@ -4,7 +4,8 @@ INSERT INTO books (id, title, author) VALUES
     (3, 'Ulysses', 'James Joyce'),
     (4, 'Beloved', 'Toni Morrison'),
     (5, 'Dracula', 'Bram Stoker'),
-    (6, 'Walden', 'Henry David Thoreau');
+    (6, 'Walden', 'Henry David Thoreau'),
+    (7, 'Persuasion', 'Jane Austen');
 
 INSERT INTO members (id, name) VALUES
     (1, 'Agon'),

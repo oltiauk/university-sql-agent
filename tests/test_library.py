@@ -49,3 +49,12 @@ def test_command_line_needs_only_db(library_path, tmp_path, capsys):
 def test_result_checks_work_on_the_library(library_path):
     model = FakeModel([{"sql": "SELECT title FROM books WHERE title = 'Nope'"}])
     assert build_graph(model, library_path).invoke({"question": "q"})["answer"] == "Nothing matched."
+
+def test_never_loaned_book_is_not_on_loan(library_path):
+    wrong = """SELECT b.title FROM books b LEFT JOIN loans l ON l.book_id = b.id
+WHERE l.returned_on IS NULL ORDER BY b.title"""
+    with closing(connect(library_path)) as conn:
+        titles = [r[0] for r in run_query(conn, wrong)[1]]
+        assert len(titles) == 4 and "Persuasion" in titles
+        assert run_query(conn, ON_LOAN)[1] == [("Dracula",), ("Dune",), ("Emma",)]
+        assert run_query(conn, "SELECT COUNT(*) AS n FROM books")[1] == [(7,)]

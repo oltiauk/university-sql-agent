@@ -1,5 +1,10 @@
 import json
+import re
 
+import pytest
+
+import examples.make_examples
+from db.build import ROOT
 from agent.cli import main
 from examples.make_examples import make
 from tests.fakes import FakeModel
@@ -38,14 +43,38 @@ def test_readme_lists_every_example_and_labels_scripted_ones(tmp_path):
     assert text.count("Scripted: produced with a fake model") == 3
     assert "--trace" in text and "--traces examples/traces" in text      # how to open one by its run id
 
-def test_live_examples_run_with_an_injected_model(tmp_path):
-    replies = [{"sql": "SELECT 1 AS one"}, "one"] * 8
-    entries = make(live=True, model=FakeModel(replies), out_dir=str(tmp_path))
+def test_live_examples_run_with_an_injected_model_and_leave_no_absolute_path(tmp_path):
+    entries = make(live=True, model=FakeModel([{"sql": "SELECT 1 AS one"}, "one"] * 8), out_dir=str(tmp_path))
     assert len(entries) == 11 and len(list((tmp_path / "traces").glob("*.json"))) == 11
     library = index(tmp_path)["library"]
     assert json.loads((tmp_path / "traces" / f"{library['run_id']}.json").read_text())["database"] == "library.db"
-
-def test_examples_have_no_absolute_paths(tmp_path):
-    make(live=True, model=FakeModel([{"sql": "SELECT 1 AS one"}, "one"] * 8), out_dir=str(tmp_path))
     for path in list((tmp_path / "traces").glob("*.json")) + [tmp_path / "README.md", tmp_path / "examples.json"]:
-        assert "/Users/" not in path.read_text() and str(tmp_path) not in path.read_text()
+        text = path.read_text()
+        assert "/Users/" not in text and str(tmp_path) not in text and str(ROOT) not in text
+
+def test_index_stays_consistent_when_a_run_raises(tmp_path, monkeypatch):
+    make(live=False, out_dir=str(tmp_path))
+    real, calls = examples.make_examples.run_traced, []
+
+    def flaky(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError("disk full")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(examples.make_examples, "run_traced", flaky)
+    with pytest.raises(OSError):
+        make(live=False, out_dir=str(tmp_path))
+    for entry in index(tmp_path).values():
+        assert (tmp_path / "traces" / f"{entry['run_id']}.json").exists()
+    for link in re.findall(r"\]\((traces/[^)]+\.json)\)", (tmp_path / "README.md").read_text()):
+        assert (tmp_path / link).exists()
+
+def test_error_run_keeps_the_previous_example(tmp_path):
+    make(live=True, model=FakeModel([{"sql": "SELECT 1 AS one"}, "one"] * 8), out_dir=str(tmp_path))
+    before = index(tmp_path)["aggregate"]
+    with pytest.raises(SystemExit):
+        make(live=True, model=FakeModel([RuntimeError("down")]), out_dir=str(tmp_path))
+    assert index(tmp_path)["aggregate"] == before
+    assert (tmp_path / "traces" / f"{before['run_id']}.json").exists()
+    assert len(list((tmp_path / "traces").glob("*.json"))) == 11
